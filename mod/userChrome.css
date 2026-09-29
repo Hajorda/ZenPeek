@@ -32,6 +32,12 @@
 #zen-peek-panel.zp-card.zp-instant {
   transition: opacity 0.14s ease;
 }
+#zen-peek-panel.zp-card[zp-motion="fast"] {
+  transition-duration: 0.08s, 0.1s;
+}
+#zen-peek-panel.zp-card[zp-motion="off"] {
+  transition: none;
+}
 @media (prefers-reduced-motion: reduce) {
   #zen-peek-panel.zp-card { transition: none; }
 }
@@ -72,6 +78,7 @@
 .zp-meta { color: var(--zp-muted); font-size: 11px; white-space: nowrap; }
 .zp-accent { color: var(--zp-accent); font-weight: 600; }
 .zp-secondary { color: var(--zp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+.zp-extra { color: var(--zp-muted); font-size: 12px; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
 .zp-dim { opacity: .5; }
 .zp-empty { color: var(--zp-muted); padding: 12px 6px; text-align: center; }
 .zp-host { color: var(--zp-muted); font-size: 11px; padding: 6px; }

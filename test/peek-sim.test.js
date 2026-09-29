@@ -17,7 +17,8 @@ const findAll = (n, pred, out = []) => {
   return out;
 };
 
-function setup({ routes = {}, secrets = {} } = {}) {
+function setup({ routes = {}, secrets = {}, prefs = {} } = {}) {
+  const pref = (k, d) => (k.replace("zen.peek.", "") in prefs ? prefs[k.replace("zen.peek.", "")] : d);
   const calls = [];
   const opened = [];
   const root = { children: [], replaceChildren(...c) { this.children = c; } };
@@ -52,7 +53,11 @@ function setup({ routes = {}, secrets = {} } = {}) {
   const ctx = loadGlobals(["core.uc.js", "sources.uc.js"], {
     Intl, window: win, fetch: fetchFn, ZPZen: Zen, Ci: {}, Components: { Constructor: () => function () {} },
     Services: {
-      prefs: { getBoolPref: (k, d) => d, getIntPref: (k, d) => (k.endsWith("delay") ? 150 : d), getStringPref: (k, d) => d },
+      prefs: {
+        getBoolPref: (k, d) => pref(k, d),
+        getIntPref: (k, d) => (k.endsWith("delay") ? pref(k, 150) : pref(k, d)),
+        getStringPref: (k, d) => pref(k, d),
+      },
       logins: { searchLoginsAsync: async ({ httpRealm }) => logins.filter((l) => l.httpRealm === httpRealm) },
       prompt: {},
     },
@@ -151,4 +156,83 @@ test("a slow response for an old hover never replaces the current one", async ()
   await sleep(150);
   assert.match(s.rendered(), /example\.com/);
   assert.doesNotMatch(s.rendered(), /Lunch/);
+});
+
+const manyMails = `<feed><fullcount>6</fullcount>${Array.from({ length: 6 }, (_, i) => `<entry><title>Subject ${i}</title><summary>Body text ${i}</summary><issued>${new Date(Date.now() - i * 60000).toISOString()}</issued><author><name>Sender ${i}</name></author><link href="https://mail.google.com/mail/u/0/#inbox/${i}"/></entry>`).join("")}</feed>`;
+const gmailRoute = { "https://mail.google.com/mail/u/0/feed/atom": manyMails };
+
+test("settings: items per card and Gmail snippets", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { items: 3, "gmail-snippets": true } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(s.rows().length, 3);
+  assert.match(s.rendered(), /Subject 0.*Body text 0/);
+});
+
+test("settings: snippets are off by default", async () => {
+  const s = setup({ routes: gmailRoute });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(s.rows().length, 5);
+  assert.doesNotMatch(s.rendered(), /Body text/);
+});
+
+test("settings: a card turned off shows the page instead", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { "card-gmail": false } });
+  await sleep(5);
+  s.hover().enter({ ...gmailTab, loaded: true });
+  await sleep(250);
+  assert.equal(s.calls.length, 0, "Gmail not fetched");
+  assert.ok(s.root.children.some((n) => n.tag === "canvas"), "page snapshot shown");
+});
+
+test("settings: links open in a new tab when chosen", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { "open-links": "new" } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  s.rows()[0].props.onclick({ button: 0 });
+  assert.equal(s.opened[0].newTab, true);
+});
+
+test("settings: calendar hides past events and the next event", async () => {
+  const now = new Date();
+  const p = (d) => String(d).padStart(2, "0");
+  const stamp = (d, h) => `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(h)}0000`;
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const ev = (uid, t, day, h1, h2) => ["BEGIN:VEVENT", `UID:${uid}`, `SUMMARY:${t}`, `DTSTART:${stamp(day, h1)}`, `DTEND:${stamp(day, h2)}`, "END:VEVENT"];
+  const ics = ["BEGIN:VCALENDAR", ...ev("1", "Early meeting", now, 0, 0 + 1), ...ev("2", "Tomorrow thing", tomorrow, 10, 11), "END:VCALENDAR"].join("\r\n");
+  const base = { routes: { "https://cal/s.ics": ics }, secrets: { calendar: "https://cal/s.ics" } };
+  const calTab = { label: "Calendar", url: "https://calendar.google.com/calendar/r" };
+
+  let s = setup(base);
+  await sleep(5);
+  s.hover().enter(calTab);
+  await sleep(250);
+  if (now.getHours() >= 1) assert.match(s.rendered(), /Early meeting/);
+  assert.match(s.rendered(), /Next.*Tomorrow thing/);
+
+  s = setup({ ...base, prefs: { "calendar-past": false, "calendar-next": false } });
+  await sleep(5);
+  s.hover().enter(calTab);
+  await sleep(250);
+  if (now.getHours() >= 1) assert.doesNotMatch(s.rendered(), /Early meeting/);
+  assert.doesNotMatch(s.rendered(), /Tomorrow thing/);
+});
+
+test("settings: GitHub sections can be turned off", async () => {
+  const routes = new Proxy({}, { get: (_, url) => {
+    if (typeof url !== "string") return undefined;
+    if (url.includes("/notifications")) return "[]";
+    if (url.includes("review-requested")) return JSON.stringify({ items: [{ number: 9, title: "Review me", html_url: "https://github.com/a/b/pull/9", repository_url: "https://api.github.com/repos/a/b", updated_at: new Date().toISOString() }] });
+    return JSON.stringify({ items: [] });
+  } });
+  const s = setup({ routes, secrets: { github: "t" }, prefs: { "github-reviews": false, "github-notifications": false } });
+  await sleep(5);
+  s.hover().enter({ label: "GitHub", url: "https://github.com/" });
+  await sleep(250);
+  assert.doesNotMatch(s.rendered(), /Review me|Notifications/);
+  assert.match(s.rendered(), /turned off/);
 });

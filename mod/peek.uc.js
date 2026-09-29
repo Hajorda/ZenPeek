@@ -10,8 +10,7 @@
 
   const P = "zen.peek.";
   const LOGIN_ORIGIN = "chrome://zen-peek";
-  const CACHE_MS = 90_000;
-  const WIDTH = 320;
+  const WIDTHS = { narrow: 280, normal: 320, wide: 380 };
 
   const bool = (name, d) => {
     try {
@@ -35,11 +34,33 @@
       return d;
     }
   };
+  // Every setting has its default here (Sine doesn't apply preference defaults).
   const settings = () => ({
+    // General
+    style: str("style", "card") === "popup" ? "popup" : "card",
     delay: Math.min(3000, Math.max(150, num("delay", 500))),
+    width: WIDTHS[str("width", "normal")] || WIDTHS.normal,
+    items: Math.min(10, Math.max(1, num("items", 5))),
+    refreshMs: Math.min(3600, Math.max(15, num("refresh", 90))) * 1000,
+    motion: ["normal", "fast", "off"].includes(str("motion", "normal")) ? str("motion", "normal") : "normal",
+    newTab: str("open-links", "same") === "new",
+    // Which cards are on
+    cards: {
+      gmail: bool("card-gmail", true),
+      calendar: bool("card-calendar", true),
+      github: bool("card-github", true),
+      hn: bool("card-hn", true),
+    },
+    // Card options
+    gmailSnippets: bool("gmail-snippets", false),
+    calendarPast: bool("calendar-past", true),
+    calendarNext: bool("calendar-next", true),
+    githubReviews: bool("github-reviews", true),
+    githubMine: bool("github-mine", true),
+    githubNotifications: bool("github-notifications", true),
+    // Other sites
     pinned: bool("pinned-tabs", false),
     snapshots: bool("snapshots", true),
-    style: str("style", "card") === "popup" ? "popup" : "card",
   });
 
   // --- Secrets (calendar address, GitHub token) in the password manager ------
@@ -81,21 +102,23 @@
 
   // --- Loading card data ---------------------------------------------------
 
-  const cache = new Core.Cache(CACHE_MS);
+  const cache = new Core.Cache(90_000);
   const inflight = new Map();
 
-  async function load(card) {
-    const key = `${card.type}:${card.account ?? ""}`;
+  async function load(card, s = settings()) {
+    cache.ttl = s.refreshMs;
+    const limit = s.items;
+    const key = `${card.type}:${card.account ?? ""}:${limit}`;
     const hit = cache.get(key);
     if (hit) return hit;
     if (inflight.has(key)) return inflight.get(key);
     const p = (async () => {
       const fetchFn = (url, init) => fetch(url, init);
       let data;
-      if (card.type === "gmail") data = await Sources.gmail({ fetchFn, account: card.account });
-      else if (card.type === "calendar") data = await Sources.calendar({ fetchFn, icsUrls: (await getSecret("calendar")).split(" ").filter(Boolean) });
-      else if (card.type === "github") data = await Sources.github({ fetchFn, token: await getSecret("github") });
-      else if (card.type === "hn") data = await Sources.hn({ fetchFn });
+      if (card.type === "gmail") data = await Sources.gmail({ fetchFn, account: card.account, limit });
+      else if (card.type === "calendar") data = await Sources.calendar({ fetchFn, icsUrls: (await getSecret("calendar")).split(" ").filter(Boolean), limit: Math.max(limit, 8) });
+      else if (card.type === "github") data = await Sources.github({ fetchFn, token: await getSecret("github"), limit });
+      else if (card.type === "hn") data = await Sources.hn({ fetchFn, limit });
       cache.set(key, data);
       return data;
     })().finally(() => inflight.delete(key));
@@ -116,12 +139,12 @@
     ]);
   }
 
-  function row({ primary, secondary, meta, url, dim, accent }, tab) {
+  function row({ primary, secondary, extra, meta, url, dim, accent }, tab) {
     return h("div", {
       class: `zp-row${dim ? " zp-dim" : ""}${url ? " zp-link" : ""}`,
       onclick: url ? (e) => {
         Zen.closePanel();
-        Zen.openLink(url, tab, { newTab: !!(e.button === 1 || e.ctrlKey || e.metaKey) });
+        Zen.openLink(url, tab, { newTab: settings().newTab || !!(e.button === 1 || e.ctrlKey || e.metaKey) });
       } : null,
     }, [
       h("div", { class: "zp-row-main" }, [
@@ -129,23 +152,25 @@
         meta ? h("span", { class: `zp-meta${accent ? " zp-accent" : ""}`, text: meta }) : null,
       ]),
       secondary ? h("div", { class: "zp-secondary", text: secondary }) : null,
+      extra ? h("div", { class: "zp-extra", text: extra }) : null,
     ]);
   }
 
   const empty = (text) => h("div", { class: "zp-empty", text });
 
-  function renderGmail(tab, d) {
+  function renderGmail(tab, d, s) {
     return [
       header(tab, "Gmail", d.unread ? `${d.unread} unread` : ""),
       ...(d.mails.length
-        ? d.mails.map((m) => row({ primary: m.from || "(unknown)", meta: Core.relTime(m.date), secondary: m.subject, url: m.url }, tab))
+        ? d.mails.map((m) => row({ primary: m.from || "(unknown)", meta: Core.relTime(m.date), secondary: m.subject, extra: s.gmailSnippets ? m.snippet : "", url: m.url }, tab))
         : [empty("Inbox zero 🎉")]),
     ];
   }
 
-  function renderCalendar(tab, d) {
+  function renderCalendar(tab, d, s) {
     const now = new Date();
-    const rows = d.events.map((e) => {
+    const events = s.calendarPast ? d.events : d.events.filter((e) => e.allDay || e.end > now);
+    const rows = events.slice(0, s.items).map((e) => {
       const status = Core.eventStatus(e, now);
       return row({
         primary: e.summary,
@@ -157,32 +182,35 @@
     });
     const today = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(now);
     const out = [header(tab, today), ...(rows.length ? rows : [empty("Nothing today")])];
-    if (d.next) {
+    if (d.next && s.calendarNext) {
       const when = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(d.next.start);
       out.push(h("div", { class: "zp-subhead", text: "Next" }), row({ primary: d.next.summary, meta: when }, tab));
     }
     return out;
   }
 
-  function renderGithub(tab, d) {
+  function renderGithub(tab, d, s) {
     const pr = (p, meta, accent) => row({ primary: p.title, secondary: `${p.repo} #${p.number}`, meta, accent, url: p.url }, tab);
-    const out = [header(tab, "GitHub", d.count ? `${d.count} unread` : "")];
-    if (d.reviews.length) {
+    const out = [header(tab, "GitHub", s.githubNotifications && d.count ? `${d.count} unread` : "")];
+    if (s.githubReviews && d.reviews.length) {
       out.push(h("div", { class: "zp-subhead", text: `Review requested · ${d.reviews.length}` }));
       out.push(...d.reviews.map((p) => pr(p, Core.relTime(p.date), true)));
     }
-    if (d.mine.length) {
+    if (s.githubMine && d.mine.length) {
       out.push(h("div", { class: "zp-subhead", text: "Your pull requests" }));
       out.push(...d.mine.map((p) => pr(p, p.status, p.status === "approved" || p.status === "changes requested")));
     }
-    out.push(h("div", { class: "zp-subhead", text: "Notifications" }));
-    out.push(...(d.items.length
-      ? d.items.map((n) => row({ primary: n.title, secondary: `${n.repo} · ${n.reason.replace(/_/g, " ")}`, meta: Core.relTime(n.date), url: n.url }, tab))
-      : [empty("No unread notifications")]));
+    if (s.githubNotifications) {
+      out.push(h("div", { class: "zp-subhead", text: "Notifications" }));
+      out.push(...(d.items.length
+        ? d.items.map((n) => row({ primary: n.title, secondary: `${n.repo} · ${n.reason.replace(/_/g, " ")}`, meta: Core.relTime(n.date), url: n.url }, tab))
+        : [empty("No unread notifications")]));
+    }
+    if (out.length === 1) out.push(empty("All GitHub sections are turned off in Zen Peek's settings"));
     return out;
   }
 
-  function renderHn(tab, d) {
+  function renderHn(tab, d, s) {
     return [header(tab, "Hacker News · Top"), ...d.items.map((s) => row({ primary: s.title, meta: `▲ ${s.score}`, secondary: `${s.count} comments`, url: s.url }, tab))];
   }
 
@@ -209,10 +237,10 @@
     return out;
   }
 
-  async function renderPage(tab) {
+  async function renderPage(tab, s) {
     const out = [header(tab, Zen.tabTitle(tab))];
-    if (settings().snapshots && Zen.isLoaded(tab)) {
-      const canvas = await Zen.snapshot(tab, WIDTH - 16);
+    if (s.snapshots && Zen.isLoaded(tab)) {
+      const canvas = await Zen.snapshot(tab, s.width - 16);
       if (canvas) {
         canvas.className = "zp-snapshot";
         out.push(canvas);
@@ -239,25 +267,31 @@
     Zen.reposition?.();
   }
 
-  const ensurePanel = () => Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide, style: settings().style });
+  // Picks up setting changes (style, width, animation) on the next hover, no restart.
+  const ensurePanel = (s = settings()) => {
+    Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide, style: s.style });
+    Zen.configure?.({ width: s.width, motion: s.motion });
+  };
 
   async function show(tab) {
     const my = ++token;
-    ensurePanel(); // picks up a style change without a restart
+    const s = settings();
+    ensurePanel(s);
     shownFor = tab;
-    const card = Core.cardFor(Zen.tabUrl(tab));
+    let card = Core.cardFor(Zen.tabUrl(tab));
+    if (card && !s.cards[card.type]) card = null; // turned off: show the page instead
     fill([header(tab, Zen.tabTitle(tab)), h("div", { class: "zp-loading" })]);
     Zen.openPanel(tab);
     let nodes;
     if (card) {
       try {
-        nodes = RENDER[card.type](tab, await load(card));
+        nodes = RENDER[card.type](tab, await load(card, s), s);
       } catch (e) {
         console.warn("[Zen Peek]", card.type, e);
         nodes = renderError(tab, card, e);
       }
     } else {
-      nodes = await renderPage(tab);
+      nodes = await renderPage(tab, s);
     }
     if (my === token && shownFor === tab) fill(nodes);
   }

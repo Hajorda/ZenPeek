@@ -63,14 +63,41 @@ You need [Zen Browser](https://zen-browser.app) and the [Sine](https://github.co
 
 ## Settings
 
-Open Sine → Zen Peek.
+Open Sine → Zen Peek. Changes apply on your next hover; no restart needed.
+
+**General**
+
+| Setting | Options | Default |
+| --- | --- | --- |
+| Preview style | Floating card (glides between Essentials) · Classic popup (with an arrow) | Floating card |
+| Show the preview after hovering for | 0.2 – 1.2 seconds | 0.5 s |
+| Card width | Narrow · Normal · Wide | Normal |
+| Items per card | 3 · 5 · 8 · 10 | 5 |
+| Refresh data at most every | 30 s · 1.5 min · 5 min · 15 min | 1.5 min |
+| Animation (floating card) | Normal · Fast · Off | Normal |
+| Clicking an item opens it | In that Essential's tab · In a new tab | In that Essential's tab |
+
+Ctrl/Cmd-click or middle-click always opens in a new tab. "Off" animation is also used automatically if your system asks for reduced motion.
+
+**Cards:** turn Gmail, Google Calendar, GitHub or Hacker News off to see the page snapshot instead.
+
+**Card options**
+
+| Card | Option | Default |
+| --- | --- | --- |
+| Gmail | Show the first lines of each mail | Off |
+| Calendar | Show today's events that are already over (dimmed) | On |
+| Calendar | Show the next event when today is done | On |
+| GitHub | Pull requests waiting for my review | On |
+| GitHub | My open pull requests and their review status | On |
+| GitHub | Unread notifications | On |
+
+**Other sites**
 
 | Setting | Default |
 | --- | --- |
-| Preview style: **floating card** (glides between Essentials) or **classic popup** (Zen's native popup with an arrow) | Floating card |
-| Show the preview after hovering for | 0.5 seconds |
-| Snapshot of other sites when their tab is open | On |
-| Also preview pinned tabs, not only Essentials | Off |
+| Show a snapshot of the page when its tab is open | On |
+| Also preview pinned tabs (not only Essentials) | Off |
 
 ## Privacy
 

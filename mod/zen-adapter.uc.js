@@ -184,6 +184,13 @@ var ZPZen = (() => {
       }
     },
 
+    // Card width and animation speed (applied on every show).
+    configure({ width, motion }) {
+      const root = this.panelRoot();
+      if (root) root.style.width = `${width}px`;
+      panel?.setAttribute("zp-motion", motion);
+    },
+
     removePanel() {
       try {
         panel?.hidePopup?.();

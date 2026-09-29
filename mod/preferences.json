@@ -1,5 +1,9 @@
 [
   {
+    "type": "separator",
+    "label": "General"
+  },
+  {
     "property": "zen.peek.style",
     "type": "dropdown",
     "label": "Preview style",
@@ -24,6 +28,10 @@
     "placeholder": false,
     "options": [
       {
+        "label": "0.2 seconds",
+        "value": 200
+      },
+      {
         "label": "0.3 seconds",
         "value": 300
       },
@@ -42,9 +50,198 @@
     ]
   },
   {
+    "property": "zen.peek.width",
+    "type": "dropdown",
+    "label": "Card width",
+    "defaultValue": "normal",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Narrow",
+        "value": "narrow"
+      },
+      {
+        "label": "Normal",
+        "value": "normal"
+      },
+      {
+        "label": "Wide",
+        "value": "wide"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.items",
+    "type": "dropdown",
+    "label": "Items per card",
+    "defaultValue": 5,
+    "placeholder": false,
+    "options": [
+      {
+        "label": "3",
+        "value": 3
+      },
+      {
+        "label": "5",
+        "value": 5
+      },
+      {
+        "label": "8",
+        "value": 8
+      },
+      {
+        "label": "10",
+        "value": 10
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.refresh",
+    "type": "dropdown",
+    "label": "Refresh data at most every",
+    "defaultValue": 90,
+    "placeholder": false,
+    "options": [
+      {
+        "label": "30 seconds",
+        "value": 30
+      },
+      {
+        "label": "1.5 minutes",
+        "value": 90
+      },
+      {
+        "label": "5 minutes",
+        "value": 300
+      },
+      {
+        "label": "15 minutes",
+        "value": 900
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.motion",
+    "type": "dropdown",
+    "label": "Animation (floating card)",
+    "defaultValue": "normal",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Normal",
+        "value": "normal"
+      },
+      {
+        "label": "Fast",
+        "value": "fast"
+      },
+      {
+        "label": "Off",
+        "value": "off"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.open-links",
+    "type": "dropdown",
+    "label": "Clicking an item opens it",
+    "defaultValue": "same",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "In that Essential's tab",
+        "value": "same"
+      },
+      {
+        "label": "In a new tab",
+        "value": "new"
+      }
+    ]
+  },
+  {
+    "type": "separator",
+    "label": "Cards (turned off = show the page instead)"
+  },
+  {
+    "property": "zen.peek.card-gmail",
+    "type": "checkbox",
+    "label": "Gmail",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-calendar",
+    "type": "checkbox",
+    "label": "Google Calendar",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-github",
+    "type": "checkbox",
+    "label": "GitHub",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-hn",
+    "type": "checkbox",
+    "label": "Hacker News",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Gmail"
+  },
+  {
+    "property": "zen.peek.gmail-snippets",
+    "type": "checkbox",
+    "label": "Show the first lines of each mail",
+    "defaultValue": false
+  },
+  {
+    "type": "separator",
+    "label": "Calendar"
+  },
+  {
+    "property": "zen.peek.calendar-past",
+    "type": "checkbox",
+    "label": "Show today's events that are already over (dimmed)",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.calendar-next",
+    "type": "checkbox",
+    "label": "Show the next event when today is done",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "GitHub"
+  },
+  {
+    "property": "zen.peek.github-reviews",
+    "type": "checkbox",
+    "label": "Pull requests waiting for my review",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.github-mine",
+    "type": "checkbox",
+    "label": "My open pull requests and their review status",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.github-notifications",
+    "type": "checkbox",
+    "label": "Unread notifications",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Other sites"
+  },
+  {
     "property": "zen.peek.snapshots",
     "type": "checkbox",
-    "label": "For other sites, show a snapshot of the page when the tab is open",
+    "label": "Show a snapshot of the page when its tab is open",
     "defaultValue": true
   },
   {
