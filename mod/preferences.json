@@ -1,0 +1,27 @@
+[
+  {
+    "property": "zen.peek.delay",
+    "type": "dropdown",
+    "label": "Show the preview after hovering for",
+    "defaultValue": 500,
+    "placeholder": false,
+    "options": [
+      { "label": "0.3 seconds", "value": 300 },
+      { "label": "0.5 seconds", "value": 500 },
+      { "label": "0.8 seconds", "value": 800 },
+      { "label": "1.2 seconds", "value": 1200 }
+    ]
+  },
+  {
+    "property": "zen.peek.snapshots",
+    "type": "checkbox",
+    "label": "For other sites, show a snapshot of the page when the tab is open",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.pinned-tabs",
+    "type": "checkbox",
+    "label": "Also preview pinned tabs (not only Essentials)",
+    "defaultValue": false
+  }
+]

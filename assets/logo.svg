@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Zen Peek logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#065F46"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD66B"/>
+      <stop offset="1" stop-color="#FFC53D"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <!-- the Essential you hover -->
+  <rect x="18" y="52" width="24" height="24" rx="7" fill="#FFFFFF" opacity="0.95"/>
+  <circle cx="30" cy="64" r="5" fill="#10B981"/>
+  <!-- the preview card popping out -->
+  <path d="M50 64l8-6v12z" fill="#FFD66B"/>
+  <rect x="56" y="30" width="56" height="68" rx="10" fill="url(#card)"/>
+  <rect x="64" y="40" width="30" height="6" rx="3" fill="#8A5A00" opacity="0.7"/>
+  <rect x="64" y="54" width="40" height="5" rx="2.5" fill="#8A5A00" opacity="0.4"/>
+  <rect x="64" y="65" width="34" height="5" rx="2.5" fill="#8A5A00" opacity="0.4"/>
+  <rect x="64" y="76" width="38" height="5" rx="2.5" fill="#8A5A00" opacity="0.4"/>
+  <circle cx="102" cy="43" r="4" fill="#22C55E"/>
+</svg>

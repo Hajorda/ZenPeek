@@ -1,0 +1,72 @@
+/* Zen Peek popup */
+#zen-peek-panel {
+  --panel-padding: 0;
+  --arrowpanel-padding: 0;
+  --zp-bg: var(--arrowpanel-background, light-dark(#ffffff, #1f1f23));
+  --zp-fg: var(--arrowpanel-color, light-dark(#18181b, #f4f4f5));
+  --zp-muted: light-dark(#71717a, #a1a1aa);
+  --zp-line: light-dark(#e4e4e7, #34343a);
+  --zp-hover: light-dark(#f4f4f5, #2a2a30);
+  --zp-accent: #10b981;
+  color-scheme: light dark;
+}
+#zen-peek-root {
+  width: 320px;
+  max-height: 460px;
+  overflow: auto;
+  padding: 8px;
+  box-sizing: border-box;
+  background: var(--zp-bg);
+  color: var(--zp-fg);
+  border-radius: 12px;
+  font: menu;
+  font-size: 13px;
+}
+.zp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 8px;
+}
+.zp-icon { width: 16px; height: 16px; }
+.zp-title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zp-badge {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--zp-accent);
+  color: #fff;
+}
+.zp-subhead { color: var(--zp-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 6px 2px; }
+.zp-row { padding: 6px; border-radius: 8px; }
+.zp-row + .zp-row { border-top: 1px solid var(--zp-line); border-top-left-radius: 0; border-top-right-radius: 0; }
+.zp-link { cursor: pointer; }
+.zp-link:hover { background: var(--zp-hover); }
+.zp-row-main { display: flex; gap: 8px; align-items: baseline; }
+.zp-primary { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zp-meta { color: var(--zp-muted); font-size: 11px; white-space: nowrap; }
+.zp-accent { color: var(--zp-accent); font-weight: 600; }
+.zp-secondary { color: var(--zp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+.zp-dim { opacity: .5; }
+.zp-empty { color: var(--zp-muted); padding: 12px 6px; text-align: center; }
+.zp-host { color: var(--zp-muted); font-size: 11px; padding: 6px; }
+.zp-snapshot { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--zp-line); }
+.zp-button {
+  margin: 4px 6px 6px;
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--zp-line);
+  background: var(--zp-hover);
+  color: inherit;
+  cursor: pointer;
+}
+.zp-loading {
+  height: 64px;
+  margin: 4px 6px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--zp-hover), var(--zp-line), var(--zp-hover));
+  background-size: 200% 100%;
+  animation: zp-shimmer 1.2s linear infinite;
+}
+@keyframes zp-shimmer { to { background-position: -200% 0; } }
