@@ -1,14 +1,33 @@
-/* Zen Peek popup */
+/* Zen Peek: a floating card beside the hovered Essential */
 #zen-peek-panel {
-  --panel-padding: 0;
-  --arrowpanel-padding: 0;
-  --zp-bg: var(--arrowpanel-background, light-dark(#ffffff, #1f1f23));
-  --zp-fg: var(--arrowpanel-color, light-dark(#18181b, #f4f4f5));
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-9999px, 0);
+  transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform, opacity;
+  border-radius: 12px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28), 0 0 0 1px light-dark(rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.08));
+  --zp-bg: light-dark(#ffffff, #1f1f23);
+  --zp-fg: light-dark(#18181b, #f4f4f5);
   --zp-muted: light-dark(#71717a, #a1a1aa);
   --zp-line: light-dark(#e4e4e7, #34343a);
   --zp-hover: light-dark(#f4f4f5, #2a2a30);
   --zp-accent: #10b981;
   color-scheme: light dark;
+}
+#zen-peek-panel.zp-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+#zen-peek-panel.zp-instant {
+  transition: opacity 0.14s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  #zen-peek-panel { transition: none; }
 }
 #zen-peek-root {
   width: 320px;

@@ -5,7 +5,7 @@
 //   tab[zen-essential], tab.pinned, tab._zenPinnedInitialState.entry.url,
 //   gBrowser.{tabContainer, selectedTab, selectedBrowser, getIcon},
 //   browsingContext.currentWindowGlobal.drawSnapshot (as Zen's Glance uses it),
-//   gZenVerticalTabsManager._prefsRightSide (popup side, as Zen's folder popup),
+//   gZenVerticalTabsManager._prefsRightSide (which side the card opens on),
 //   gZenWorkspaces.{promiseInitialized, privateWindowOrDisabled}, #tabContextMenu, TabContextMenu.contextTab,
 //   openTrustedLinkIn
 // eslint-disable-next-line no-var
@@ -87,33 +87,59 @@ var ZPZen = (() => {
 
     // --- Popup -----------------------------------------------------------------
 
+    // The preview is a floating card drawn in Zen's own window (not a popup
+    // window), so it can glide between Essentials without leaving a ghost.
     panel({ onEnter, onLeave }) {
       if (panel) return panel;
-      panel = document.createXULElement("panel");
+      panel = document.createElementNS(HTML, "div");
       panel.id = "zen-peek-panel";
-      panel.setAttribute("noautofocus", "true");
-      panel.setAttribute("consumeoutsideclicks", "false");
-      panel.setAttribute("level", "parent");
       const root = document.createElementNS(HTML, "div");
       root.id = "zen-peek-root";
       panel.append(root);
-      document.getElementById("mainPopupSet").append(panel);
+      document.documentElement.append(panel);
       panel.addEventListener("mouseenter", onEnter);
       panel.addEventListener("mouseleave", onLeave);
+      // Keep it on screen when its content grows or shrinks.
+      new ResizeObserver(() => this.reposition()).observe(root);
       return panel;
     },
 
     panelRoot: () => panel?.querySelector("#zen-peek-root"),
-    panelOpen: () => panel?.state === "open" || panel?.state === "showing",
+    panelOpen: () => !!panel?.classList.contains("zp-open"),
+
+    // Place the card beside `anchor`, kept inside the window.
+    reposition() {
+      if (!panel || !this._anchor || !this.panelOpen()) return;
+      const r = this._anchor.getBoundingClientRect();
+      const w = panel.offsetWidth || 320;
+      const h = panel.offsetHeight || 120;
+      const gap = 8;
+      const right = !!gZenVerticalTabsManager?._prefsRightSide;
+      // Open outside the sidebar, so the card never covers other Essentials.
+      const sidebar = document.getElementById("navigator-toolbox");
+      const edge = sidebar?.contains(this._anchor) ? sidebar.getBoundingClientRect() : r;
+      let x = right ? edge.left - w - gap : edge.right + gap;
+      let y = r.top - 6;
+      x = Math.max(gap, Math.min(x, window.innerWidth - w - gap));
+      y = Math.max(gap, Math.min(y, window.innerHeight - h - gap));
+      panel.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    },
 
     openPanel(anchor) {
-      const right = !!gZenVerticalTabsManager?._prefsRightSide;
-      if (this.panelOpen()) panel.moveToAnchor?.(anchor, right ? "topleft topright" : "topright topleft", right ? -8 : 8, 0);
-      else panel.openPopup(anchor, { position: right ? "topleft topright" : "topright topleft", x: right ? -8 : 8, y: 0 });
+      this._anchor = anchor;
+      if (this.panelOpen()) {
+        this.reposition(); // already visible: glide to the new Essential
+        return;
+      }
+      // First show: jump into place without the glide, then fade in.
+      panel.classList.add("zp-instant", "zp-open");
+      this.reposition();
+      panel.getBoundingClientRect();
+      panel.classList.remove("zp-instant");
     },
 
     closePanel() {
-      if (panel && this.panelOpen()) panel.hidePopup();
+      panel?.classList.remove("zp-open");
     },
 
     html(tagName, props = {}, children = []) {

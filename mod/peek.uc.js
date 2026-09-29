@@ -228,6 +228,7 @@
   function fill(nodes) {
     const root = Zen.panelRoot();
     if (root) root.replaceChildren(...nodes);
+    Zen.reposition?.();
   }
 
   async function show(tab) {
@@ -258,7 +259,7 @@
 
   const scheduleHide = () => {
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hide, 250);
+    hideTimer = setTimeout(hide, 400); // time to move the mouse from the icon to the card
   };
   const cancelHide = () => clearTimeout(hideTimer);
 

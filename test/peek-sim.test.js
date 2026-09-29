@@ -86,7 +86,7 @@ test("results are cached between hovers", async () => {
     s.hover().enter(gmailTab);
     await sleep(220);
     s.hover().leave(gmailTab);
-    await sleep(300);
+    await sleep(450);
   }
   assert.equal(s.calls.length, 1);
   assert.equal(s.isOpen(), false, "leaving hides the preview");
