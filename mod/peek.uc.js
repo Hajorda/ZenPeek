@@ -28,10 +28,18 @@
       return Number.isFinite(v) && v > 0 ? v : d;
     }
   };
+  const str = (name, d) => {
+    try {
+      return Services.prefs.getStringPref(P + name, d) || d;
+    } catch {
+      return d;
+    }
+  };
   const settings = () => ({
     delay: Math.min(3000, Math.max(150, num("delay", 500))),
     pinned: bool("pinned-tabs", false),
     snapshots: bool("snapshots", true),
+    style: str("style", "card") === "popup" ? "popup" : "card",
   });
 
   // --- Secrets (calendar address, GitHub token) in the password manager ------
@@ -231,8 +239,11 @@
     Zen.reposition?.();
   }
 
+  const ensurePanel = () => Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide, style: settings().style });
+
   async function show(tab) {
     const my = ++token;
+    ensurePanel(); // picks up a style change without a restart
     shownFor = tab;
     const card = Core.cardFor(Zen.tabUrl(tab));
     fill([header(tab, Zen.tabTitle(tab)), h("div", { class: "zp-loading" })]);
@@ -263,11 +274,31 @@
   };
   const cancelHide = () => clearTimeout(hideTimer);
 
+  // An older copy may still be running if Sine updated the mod without a restart.
+  try {
+    window.ZenPeek?.dispose?.();
+  } catch (e) {
+    console.warn("[Zen Peek] could not stop the previous copy", e);
+  }
+
+  const cleanups = [];
+  function dispose() {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+    token++;
+    for (const f of cleanups.splice(0)) {
+      try {
+        f();
+      } catch { /* already gone */ }
+    }
+    Zen.removePanel?.();
+  }
+
   // For the Browser Console and tests.
-  window.ZenPeek = { show, hide, askCalendar, askGithub, load, cache };
+  window.ZenPeek = { show, hide, askCalendar, askGithub, load, cache, dispose };
 
   Zen.whenReady().then(() => {
-    Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide });
+    ensurePanel();
     const stop = Zen.watchHover({
       includePinned: () => settings().pinned,
       enter(tab) {
@@ -287,10 +318,8 @@
     ]);
     const onKey = (e) => e.key === "Escape" && Zen.panelOpen() && hide();
     window.addEventListener("keydown", onKey, true);
-    window.addEventListener("unload", () => {
-      stop();
-      window.removeEventListener("keydown", onKey, true);
-    }, { once: true });
+    cleanups.push(stop, () => window.removeEventListener("keydown", onKey, true));
+    window.addEventListener("unload", dispose, { once: true });
     console.log("[Zen Peek] ready");
   }).catch((e) => console.error("Zen Peek failed to start", e));
 })();

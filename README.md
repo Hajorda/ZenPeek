@@ -67,6 +67,7 @@ Open Sine → Zen Peek.
 
 | Setting | Default |
 | --- | --- |
+| Preview style: **floating card** (glides between Essentials) or **classic popup** (Zen's native popup with an arrow) | Floating card |
 | Show the preview after hovering for | 0.5 seconds |
 | Snapshot of other sites when their tab is open | On |
 | Also preview pinned tabs, not only Essentials | Off |

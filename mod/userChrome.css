@@ -1,5 +1,18 @@
-/* Zen Peek: a floating card beside the hovered Essential */
+/* Zen Peek. Two styles share the same content styles:
+   - #zen-peek-panel.zp-card  floating card drawn in the window (default)
+   - panel#zen-peek-panel     Zen's native popup with an arrow (classic) */
 #zen-peek-panel {
+  --panel-padding: 0;
+  --arrowpanel-padding: 0;
+  --zp-bg: light-dark(#ffffff, #1f1f23);
+  --zp-fg: light-dark(#18181b, #f4f4f5);
+  --zp-muted: light-dark(#71717a, #a1a1aa);
+  --zp-line: light-dark(#e4e4e7, #34343a);
+  --zp-hover: light-dark(#f4f4f5, #2a2a30);
+  --zp-accent: #10b981;
+  color-scheme: light dark;
+}
+#zen-peek-panel.zp-card {
   position: fixed;
   top: 0;
   left: 0;
@@ -11,23 +24,16 @@
   will-change: transform, opacity;
   border-radius: 12px;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28), 0 0 0 1px light-dark(rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.08));
-  --zp-bg: light-dark(#ffffff, #1f1f23);
-  --zp-fg: light-dark(#18181b, #f4f4f5);
-  --zp-muted: light-dark(#71717a, #a1a1aa);
-  --zp-line: light-dark(#e4e4e7, #34343a);
-  --zp-hover: light-dark(#f4f4f5, #2a2a30);
-  --zp-accent: #10b981;
-  color-scheme: light dark;
 }
-#zen-peek-panel.zp-open {
+#zen-peek-panel.zp-card.zp-open {
   opacity: 1;
   pointer-events: auto;
 }
-#zen-peek-panel.zp-instant {
+#zen-peek-panel.zp-card.zp-instant {
   transition: opacity 0.14s ease;
 }
 @media (prefers-reduced-motion: reduce) {
-  #zen-peek-panel { transition: none; }
+  #zen-peek-panel.zp-card { transition: none; }
 }
 #zen-peek-root {
   width: 320px;

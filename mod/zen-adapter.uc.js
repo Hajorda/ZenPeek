@@ -13,6 +13,7 @@ var ZPZen = (() => {
   "use strict";
   const HTML = "http://www.w3.org/1999/xhtml";
   let panel = null;
+  let panelStyle = null;
 
   return {
     get supported() {
@@ -87,29 +88,55 @@ var ZPZen = (() => {
 
     // --- Popup -----------------------------------------------------------------
 
-    // The preview is a floating card drawn in Zen's own window (not a popup
-    // window), so it can glide between Essentials without leaving a ghost.
-    panel({ onEnter, onLeave }) {
-      if (panel) return panel;
-      panel = document.createElementNS(HTML, "div");
-      panel.id = "zen-peek-panel";
+    // Two styles:
+    //  "card"  — a floating card drawn in Zen's own window; glides between Essentials.
+    //  "popup" — Zen's native popup with an arrow (the original style). It is
+    //            reopened rather than moved, because moving a native popup can
+    //            leave a ghost frame behind.
+    panel({ onEnter, onLeave, style = "card" }) {
+      if (panel && panelStyle === style) return panel;
+      this.removePanel();
+      // Also remove a card or popup left by an older copy (update without restart).
+      for (const old of document.querySelectorAll("#zen-peek-panel")) {
+        try {
+          old.hidePopup?.();
+        } catch { /* not a popup */ }
+        old.remove();
+      }
       const root = document.createElementNS(HTML, "div");
       root.id = "zen-peek-root";
-      panel.append(root);
-      document.documentElement.append(panel);
+      if (style === "popup") {
+        panel = document.createXULElement("panel");
+        panel.setAttribute("noautofocus", "true");
+        panel.setAttribute("consumeoutsideclicks", "false");
+        panel.setAttribute("level", "parent");
+        panel.append(root);
+        document.getElementById("mainPopupSet").append(panel);
+      } else {
+        panel = document.createElementNS(HTML, "div");
+        panel.className = "zp-card";
+        panel.append(root);
+        document.documentElement.append(panel);
+        // Keep it on screen when its content grows or shrinks.
+        new ResizeObserver(() => this.reposition()).observe(root);
+      }
+      panel.id = "zen-peek-panel";
+      panelStyle = style;
       panel.addEventListener("mouseenter", onEnter);
       panel.addEventListener("mouseleave", onLeave);
-      // Keep it on screen when its content grows or shrinks.
-      new ResizeObserver(() => this.reposition()).observe(root);
       return panel;
     },
 
     panelRoot: () => panel?.querySelector("#zen-peek-root"),
-    panelOpen: () => !!panel?.classList.contains("zp-open"),
+    panelOpen() {
+      if (!panel) return false;
+      if (panelStyle === "popup") return panel.state === "open" || panel.state === "showing";
+      return panel.classList.contains("zp-open");
+    },
 
-    // Place the card beside `anchor`, kept inside the window.
+    // Card style: place the card beside the sidebar, kept inside the window.
     reposition() {
-      if (!panel || !this._anchor || !this.panelOpen()) return;
+      if (panelStyle !== "card" || !panel || !this._anchor || !this.panelOpen()) return;
       const r = this._anchor.getBoundingClientRect();
       const w = panel.offsetWidth || 320;
       const h = panel.offsetHeight || 120;
@@ -126,7 +153,17 @@ var ZPZen = (() => {
     },
 
     openPanel(anchor) {
+      const moved = this._anchor !== anchor;
       this._anchor = anchor;
+      if (panelStyle === "popup") {
+        if (this.panelOpen()) {
+          if (!moved) return;
+          panel.hidePopup(); // reopen at the new Essential instead of moving
+        }
+        const right = !!gZenVerticalTabsManager?._prefsRightSide;
+        panel.openPopup(anchor, { position: right ? "topleft topright" : "topright topleft", x: right ? -8 : 8, y: 0 });
+        return;
+      }
       if (this.panelOpen()) {
         this.reposition(); // already visible: glide to the new Essential
         return;
@@ -139,7 +176,21 @@ var ZPZen = (() => {
     },
 
     closePanel() {
-      panel?.classList.remove("zp-open");
+      if (!panel) return;
+      if (panelStyle === "popup") {
+        if (this.panelOpen()) panel.hidePopup();
+      } else {
+        panel.classList.remove("zp-open");
+      }
+    },
+
+    removePanel() {
+      try {
+        panel?.hidePopup?.();
+      } catch { /* not open */ }
+      panel?.remove();
+      panel = null;
+      panelStyle = null;
     },
 
     html(tagName, props = {}, children = []) {
