@@ -64,11 +64,25 @@ var ZPSources = (() => {
   // GitHub: unread notifications with a personal access token (notifications scope).
   async function github({ fetchFn, token, limit = 5 }) {
     if (!token) throw new SourceError("setup", "Set a GitHub token (right-click a GitHub Essential → Zen Peek: set GitHub token…)");
-    const res = await get(fetchFn, "https://api.github.com/notifications?per_page=20", {
-      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
-    });
-    const items = Core.parseGithubNotifications(await res.json());
-    return { count: items.length, items: items.slice(0, limit) };
+    const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+    const api = async (path) => (await get(fetchFn, `https://api.github.com${path}`, { headers })).json();
+    const search = (q) => api(`/search/issues?per_page=10&sort=updated&q=${encodeURIComponent(q)}`).then(Core.parseGithubSearch);
+    const [notes, reviews, mine, approved, changes] = await Promise.all([
+      api("/notifications?per_page=20").then(Core.parseGithubNotifications),
+      search("is:open is:pr archived:false review-requested:@me"),
+      search("is:open is:pr archived:false author:@me"),
+      search("is:open is:pr archived:false author:@me review:approved"),
+      search("is:open is:pr archived:false author:@me review:changes_requested"),
+    ]);
+    const ok = new Set(approved.map((p) => p.url));
+    const redo = new Set(changes.map((p) => p.url));
+    const status = (p) => (p.draft ? "draft" : redo.has(p.url) ? "changes requested" : ok.has(p.url) ? "approved" : "waiting for review");
+    return {
+      count: notes.length,
+      items: notes.slice(0, limit),
+      reviews: reviews.slice(0, limit),
+      mine: mine.slice(0, limit).map((p) => ({ ...p, status: status(p) })),
+    };
   }
 
   // Hacker News: public API, top stories.

@@ -28,7 +28,7 @@ Hover an Essential for half a second and a card pops out next to it:
 | --- | --- | --- |
 | **Gmail** | Unread count, your 5 latest unread mails (sender, subject, time). Click one to open it. | None: uses the Google account you're signed in to in Zen. Works per account (`/mail/u/0`, `/u/1`, …). |
 | **Google Calendar** | Today's events: past ones dimmed, "now" and "in 25 min" highlighted, plus your next event if today is done. Handles recurring events, time zones and moved meetings. | Paste your calendar's private iCal address once (see below). |
-| **GitHub** | Your unread notifications (PRs, issues, mentions). Click to open. | A personal access token with the `notifications` scope. |
+| **GitHub** | Pull requests waiting for your review, your open PRs with their status (approved, changes requested, waiting, draft), and unread notifications. Click to open. | A personal access token with the `notifications` scope (add `repo` to include private repositories). |
 | **Hacker News** | Top 5 stories. | None. |
 | **Any other site** | A snapshot of the page when the tab is open; otherwise its title and address. | None. |
 

@@ -114,6 +114,22 @@ test("calendar card lists today's events from the stored address", async () => {
   assert.match(s.rendered(), /Design review/);
 });
 
+test("github card shows review requests, my PRs and notifications", async () => {
+  const s = setup({
+    secrets: { github: "ghp_x" },
+    routes: new Proxy({}, { get: (_, url) => {
+      if (typeof url !== "string") return undefined;
+      if (url.includes("/notifications")) return "[]";
+      if (url.includes("review-requested")) return JSON.stringify({ items: [{ number: 9, title: "Review me", html_url: "https://github.com/a/b/pull/9", repository_url: "https://api.github.com/repos/a/b", updated_at: new Date().toISOString() }] });
+      return JSON.stringify({ items: [] });
+    } }),
+  });
+  await sleep(5);
+  s.hover().enter({ label: "GitHub", url: "https://github.com/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Review requested · 1.*Review me.*a\/b #9.*Notifications.*No unread notifications/);
+});
+
 test("other sites show a snapshot only when the tab is loaded", async () => {
   const s = setup();
   await sleep(5);

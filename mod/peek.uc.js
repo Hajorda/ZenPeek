@@ -157,12 +157,21 @@
   }
 
   function renderGithub(tab, d) {
-    return [
-      header(tab, "GitHub", d.count ? `${d.count} unread` : ""),
-      ...(d.items.length
-        ? d.items.map((n) => row({ primary: n.title, secondary: `${n.repo} · ${n.reason.replace(/_/g, " ")}`, meta: Core.relTime(n.date), url: n.url }, tab))
-        : [empty("No unread notifications")]),
-    ];
+    const pr = (p, meta, accent) => row({ primary: p.title, secondary: `${p.repo} #${p.number}`, meta, accent, url: p.url }, tab);
+    const out = [header(tab, "GitHub", d.count ? `${d.count} unread` : "")];
+    if (d.reviews.length) {
+      out.push(h("div", { class: "zp-subhead", text: `Review requested · ${d.reviews.length}` }));
+      out.push(...d.reviews.map((p) => pr(p, Core.relTime(p.date), true)));
+    }
+    if (d.mine.length) {
+      out.push(h("div", { class: "zp-subhead", text: "Your pull requests" }));
+      out.push(...d.mine.map((p) => pr(p, p.status, p.status === "approved" || p.status === "changes requested")));
+    }
+    out.push(h("div", { class: "zp-subhead", text: "Notifications" }));
+    out.push(...(d.items.length
+      ? d.items.map((n) => row({ primary: n.title, secondary: `${n.repo} · ${n.reason.replace(/_/g, " ")}`, meta: Core.relTime(n.date), url: n.url }, tab))
+      : [empty("No unread notifications")]));
+    return out;
   }
 
   function renderHn(tab, d) {

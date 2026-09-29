@@ -265,6 +265,19 @@ var ZPCore = (() => {
     });
   }
 
+  // GitHub search results (issues/PRs) → display items.
+  function parseGithubSearch(data) {
+    if (!data || !Array.isArray(data.items)) throw new Error("unexpected GitHub response");
+    return data.items.map((i) => ({
+      title: i.title || "",
+      repo: (i.repository_url || "").replace("https://api.github.com/repos/", ""),
+      number: i.number,
+      url: i.html_url || "",
+      draft: !!i.draft,
+      date: new Date(i.updated_at),
+    }));
+  }
+
   function parseHnItem(item) {
     return {
       title: item?.title || "",
@@ -317,6 +330,6 @@ var ZPCore = (() => {
 
   return {
     cardFor, decode, parseGmailAtom, parseICS, occurrences, eventsOnDay, zoned, tzOffset,
-    parseGithubNotifications, parseHnItem, relTime, clock, eventStatus, Cache,
+    parseGithubNotifications, parseGithubSearch, parseHnItem, relTime, clock, eventStatus, Cache,
   };
 })();

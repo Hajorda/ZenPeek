@@ -52,13 +52,32 @@ test("calendar: merges several calendars; shows the next event when today is don
   await assert.rejects(S.calendar({ fetchFn: fakeFetch({ "https://x": "<html/>" }), icsUrls: ["https://x"] }), (e) => e.code === "parse");
 });
 
-test("github: token header, setup and bad-token errors", async () => {
-  const f = fakeFetch({ "https://api.github.com/notifications?per_page=20": [{ reason: "mention", updated_at: "2026-09-29T08:00:00Z", repository: { full_name: "a/b" }, subject: { title: "Bug", type: "Issue", url: "https://api.github.com/repos/a/b/issues/1" } }] });
+const pr = (n, title, extra = {}) => ({ number: n, title, html_url: `https://github.com/a/b/pull/${n}`, repository_url: "https://api.github.com/repos/a/b", updated_at: "2026-09-29T08:00:00Z", ...extra });
+function githubRoutes() {
+  return (url) => {
+    if (url.startsWith("https://api.github.com/notifications")) return [{ reason: "mention", updated_at: "2026-09-29T08:00:00Z", repository: { full_name: "a/b" }, subject: { title: "Bug", type: "Issue", url: "https://api.github.com/repos/a/b/issues/1" } }];
+    const q = decodeURIComponent(url.split("q=")[1]);
+    if (q.includes("review-requested:@me")) return { items: [pr(7, "Please review")] };
+    if (q.includes("review:approved")) return { items: [pr(1, "Ready")] };
+    if (q.includes("review:changes_requested")) return { items: [pr(2, "Needs work")] };
+    if (q.includes("author:@me")) return { items: [pr(1, "Ready"), pr(2, "Needs work"), pr(3, "Fresh"), pr(4, "WIP", { draft: true })] };
+    return undefined;
+  };
+}
+
+test("github: notifications, review requests and my PRs with status", async () => {
+  const f = fakeFetch(githubRoutes());
   const r = await S.github({ fetchFn: f, token: "ghp_x" });
   assert.equal(r.count, 1);
-  assert.equal(f.calls[0].init.headers.authorization, "Bearer ghp_x");
-  await assert.rejects(S.github({ fetchFn: f }), (e) => e.code === "setup");
-  await assert.rejects(S.github({ fetchFn: fakeFetch({ "https://api.github.com/notifications?per_page=20": { status: 401, body: {} } }), token: "bad" }), (e) => e.code === "auth");
+  assert.deepEqual([...r.reviews.map((p) => `${p.repo}#${p.number}`)], ["a/b#7"]);
+  assert.deepEqual([...r.mine.map((p) => `${p.number}:${p.status}`)], ["1:approved", "2:changes requested", "3:waiting for review", "4:draft"]);
+  assert.ok(f.calls.every((c) => c.init.headers.authorization === "Bearer ghp_x"));
+  assert.equal(f.calls.length, 5);
+});
+
+test("github: setup and bad-token errors", async () => {
+  await assert.rejects(S.github({ fetchFn: fakeFetch({}) }), (e) => e.code === "setup");
+  await assert.rejects(S.github({ fetchFn: fakeFetch(() => ({ status: 401, body: {} })), token: "bad" }), (e) => e.code === "auth");
 });
 
 test("hacker news: top stories", async () => {
