@@ -11,7 +11,7 @@ Arc-style previews and unread badges for [Zen Browser](https://zen-browser.app):
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.3.1-F5B83D)
+![Version](https://img.shields.io/badge/version-0.3.2-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>
@@ -34,7 +34,9 @@ Hover an Essential for a moment (0.3 s) and a card pops out next to it:
 
 Moving from one Essential to the next switches the card instantly; moving toward the card keeps it open, even across other Essentials. Press **Esc** or move away to close it.
 
-**Unread badges.** Essentials show a red badge with their unread count, without hovering: Gmail unread mail, GitHub review requests and notifications, and any site that puts a count in its title, like `(3) WhatsApp`, Slack, Discord, Telegram or Messenger. Data refreshes in the background, only in the window you're using.
+**Unread badges.** Essentials get a small Arc-style dot in the corner when something is unread (or the number, if you prefer), without hovering: Gmail unread mail, GitHub review requests and notifications, and any site that puts a count in its title, like `(3) WhatsApp`, Slack, Discord, Telegram or Messenger. Data refreshes in the background, only in the window you're using.
+
+<img src="assets/badges.png" width="420" alt="Essentials with a small unread dot in the corner, and with numbers">
 
 **Keyboard.** **Alt+Shift+P** previews the focused Essential (or the first one). **↑/↓** move between items, **Enter** opens, **←/→** switch Essential, **Esc** closes.
 
@@ -78,7 +80,7 @@ Open Sine → Zen Peek. Changes apply right away; no restart needed.
 | | Clicking an item opens it in that Essential's tab · a new tab | Same tab |
 | | Keyboard shortcut: Alt+Shift+P · Ctrl+Alt+P · off | Alt+Shift+P |
 | | Language: same as Zen · English · Türkçe | Same as Zen |
-| Badges | Show unread badges: with the number · as a dot · off | Number |
+| Badges | Show unread badges: as a dot (like Arc) · with the number · off | Dot |
 | | Read unread counts from page titles (chat apps) | On |
 | Data | Refresh at most every 30 s · 1.5 · 5 · 15 min | 1.5 min |
 | | Keep Essentials' data up to date in the background | On |

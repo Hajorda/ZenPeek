@@ -76,7 +76,7 @@
     githubNotifications: bool("github-notifications", true),
     githubCi: bool("github-ci", true),
     // Badges
-    badges: oneOf("badges", ["count", "dot", "off"], "count"),
+    badges: oneOf("badges", ["dot", "count", "off"], "dot"),
     badgesTitle: bool("badges-title", true),
     // Data
     background: bool("background", true),

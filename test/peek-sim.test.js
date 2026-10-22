@@ -562,7 +562,7 @@ const atomCount = (n) => `<feed><fullcount>${n}</fullcount><entry><title>Hi</tit
 test("badges: the background refresh fetches each Essential's data and shows its unread count", async () => {
   const gmail = essential("Gmail", "https://mail.google.com/mail/u/0/");
   const notion = essential("Notion", "https://www.notion.so/");
-  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail, notion] });
+  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail, notion], prefs: { badges: "count" } });
   await sleep(5);
   s.peek().refresh();
   await sleep(80);
@@ -577,7 +577,7 @@ test("badges: counts in page titles (chat apps), dot and off styles", async () =
   const wa = essential("(3) WhatsApp", "https://web.whatsapp.com/", { loaded: true });
   const discord = essential("• Discord | Friends", "https://discord.com/app", { loaded: true });
   const sleeping = essential("(5) Messenger", "https://www.messenger.com/", { loaded: false });
-  const s = setup({ observable: true, tabs: [wa, discord, sleeping] });
+  const s = setup({ observable: true, tabs: [wa, discord, sleeping], prefs: { badges: "count" } });
   await sleep(5);
   s.peek().updateBadges();
   assert.equal(wa.badge, "3");
@@ -607,7 +607,7 @@ test("badges: counts in page titles (chat apps), dot and off styles", async () =
 
 test("badges: an open Gmail tab's live title count wins over older fetched data", async () => {
   const gmail = essential("Inbox (1) - me@gmail.com - Gmail", "https://mail.google.com/mail/u/0/", { loaded: true });
-  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail] });
+  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail], prefs: { badges: "count" } });
   await sleep(5);
   s.peek().refresh();
   await sleep(80);
@@ -623,7 +623,8 @@ test("badges: removed when the mod stops", async () => {
   const s = setup({ tabs: [wa] });
   await sleep(5);
   s.peek().updateBadges();
-  assert.equal(wa.badge, "3");
+  assert.equal(wa.badge, "", "a dot by default, like Arc");
+  assert.equal(wa.badgeLabel, "3 unread", "screen readers still hear the number");
   s.peek().dispose();
   assert.equal(wa.badge, undefined);
   assert.equal(s.menu.added, 1);

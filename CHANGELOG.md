@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2
+
+**Changed**
+- Badges look like Arc's: a small dot in the Essential's bottom-right corner, away from the icon, with a soft pop-in. The dot is now the default; "With the number" shows a compact pill in the same corner.
+
+**Fixed**
+- Numbers didn't show in badges (the badge was an empty red circle).
+
 ## 0.3.1
 
 **Fixed**

@@ -10,7 +10,7 @@
 //   openTrustedLinkIn, Services.focus.activeWindow,
 //   #navigator-toolbox[has-popup-menu] (compact mode keeps the sidebar out while it's set),
 //   tab events: TabAttrModified, TabOpen, TabClose, TabPinned, TabUnpinned,
-//   TabAddedToEssentials, TabRemovedFromEssentials (Zen), and the tab's .tab-icon-stack (badge CSS)
+//   TabAddedToEssentials, TabRemovedFromEssentials (Zen), and the tab's .tab-stack (badge CSS)
 /* exported ZPZen */
 // eslint-disable-next-line no-var
 var ZPZen = (() => {
@@ -102,10 +102,14 @@ var ZPZen = (() => {
         if (tab.hasAttribute("zen-peek-badge")) {
           tab.removeAttribute("zen-peek-badge");
           tab.removeAttribute("aria-description");
+          tab.style.removeProperty("--zen-peek-badge");
         }
         return;
       }
-      if (tab.getAttribute("zen-peek-badge") !== text) tab.setAttribute("zen-peek-badge", text);
+      if (tab.getAttribute("zen-peek-badge") !== text) {
+        tab.setAttribute("zen-peek-badge", text);
+        tab.style.setProperty("--zen-peek-badge", JSON.stringify(text)); // a CSS string: "3"
+      }
       if (label) tab.setAttribute("aria-description", label);
     },
 

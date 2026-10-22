@@ -200,16 +200,16 @@
     "property": "zen.peek.badges",
     "type": "dropdown",
     "label": "Show unread badges",
-    "defaultValue": "count",
+    "defaultValue": "dot",
     "placeholder": false,
     "options": [
       {
-        "label": "With the number",
-        "value": "count"
+        "label": "As a dot (like Arc)",
+        "value": "dot"
       },
       {
-        "label": "As a dot",
-        "value": "dot"
+        "label": "With the number",
+        "value": "count"
       },
       {
         "label": "Off",
