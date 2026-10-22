@@ -8,15 +8,20 @@ var ZPSources = (() => {
   class SourceError extends Error {
     constructor(code, message) {
       super(message);
-      this.code = code; // setup | signed-out | auth | network | server | parse
+      this.code = code; // setup | signed-out | auth | network | server | parse | aborted
     }
   }
 
-  async function get(fetchFn, url, init = {}) {
+  const abortedError = () => new SourceError("aborted", "Cancelled");
+
+  // `signal` (optional) cancels the request; that surfaces as code "aborted".
+  async function get(fetchFn, url, init = {}, signal) {
+    if (signal?.aborted) throw abortedError();
     let res;
     try {
-      res = await fetchFn(url, { cache: "no-store", ...init });
+      res = await fetchFn(url, { cache: "no-store", ...init, ...(signal ? { signal } : {}) });
     } catch (e) {
+      if (signal?.aborted || e?.name === "AbortError") throw abortedError();
       throw new SourceError("network", String(e?.message || e));
     }
     if (res.status === 401 || res.status === 403) throw new SourceError("auth", `HTTP ${res.status}`);
@@ -25,8 +30,8 @@ var ZPSources = (() => {
   }
 
   // Gmail: the unread Atom feed, using the browser's own Google login.
-  async function gmail({ fetchFn, account = 0, limit = 5 }) {
-    const res = await get(fetchFn, `https://mail.google.com/mail/u/${account}/feed/atom`, { credentials: "include" });
+  async function gmail({ fetchFn, account = 0, limit = 5, signal }) {
+    const res = await get(fetchFn, `https://mail.google.com/mail/u/${account}/feed/atom`, { credentials: "include" }, signal);
     const text = await res.text();
     let data;
     try {
@@ -39,13 +44,20 @@ var ZPSources = (() => {
 
   // Google Calendar: the private iCal address (Settings → your calendar →
   // "Secret address in iCal format"). Today's events, plus the next one if today is empty.
-  async function calendar({ fetchFn, icsUrls = [], now = new Date(), limit = 8 }) {
+  async function calendar({ fetchFn, icsUrls = [], now = new Date(), limit = 8, signal }) {
     if (!icsUrls.length) throw new SourceError("setup", "Add your calendar's secret iCal address in Zen Peek's settings");
     const all = [];
     for (const url of icsUrls) {
-      const res = await get(fetchFn, url);
+      const res = await get(fetchFn, url, {}, signal);
+      let text;
       try {
-        all.push(...Core.parseICS(await res.text()));
+        text = await res.text();
+      } catch (e) {
+        if (signal?.aborted) throw abortedError();
+        throw new SourceError("network", String(e?.message || e));
+      }
+      try {
+        all.push(...Core.parseICS(text));
       } catch {
         throw new SourceError("parse", "That address didn't return a calendar");
       }
@@ -62,10 +74,10 @@ var ZPSources = (() => {
   }
 
   // GitHub: unread notifications with a personal access token (notifications scope).
-  async function github({ fetchFn, token, limit = 5 }) {
+  async function github({ fetchFn, token, limit = 5, signal }) {
     if (!token) throw new SourceError("setup", "Set a GitHub token (right-click a GitHub Essential → Zen Peek: set GitHub token…)");
     const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
-    const api = async (path) => (await get(fetchFn, `https://api.github.com${path}`, { headers })).json();
+    const api = async (path) => (await get(fetchFn, `https://api.github.com${path}`, { headers }, signal)).json();
     const search = (q) => api(`/search/issues?per_page=10&sort=updated&q=${encodeURIComponent(q)}`).then(Core.parseGithubSearch);
     const [notes, reviews, mine, approved, changes] = await Promise.all([
       api("/notifications?per_page=20").then(Core.parseGithubNotifications),
@@ -86,10 +98,10 @@ var ZPSources = (() => {
   }
 
   // Hacker News: public API, top stories.
-  async function hn({ fetchFn, limit = 5 }) {
-    const ids = await (await get(fetchFn, "https://hacker-news.firebaseio.com/v0/topstories.json")).json();
+  async function hn({ fetchFn, limit = 5, signal }) {
+    const ids = await (await get(fetchFn, "https://hacker-news.firebaseio.com/v0/topstories.json", {}, signal)).json();
     const items = await Promise.all(
-      ids.slice(0, limit).map(async (id) => Core.parseHnItem(await (await get(fetchFn, `https://hacker-news.firebaseio.com/v0/item/${id}.json`)).json())),
+      ids.slice(0, limit).map(async (id) => Core.parseHnItem(await (await get(fetchFn, `https://hacker-news.firebaseio.com/v0/item/${id}.json`, {}, signal)).json())),
     );
     return { items };
   }

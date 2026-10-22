@@ -35,7 +35,7 @@
     }
   };
   // Every setting has its default here (Sine doesn't apply preference defaults).
-  const settings = () => ({
+  const readSettings = () => ({
     // General
     style: str("style", "card") === "popup" ? "popup" : "card",
     delay: Math.min(3000, Math.max(150, num("delay", 500))),
@@ -61,7 +61,46 @@
     // Other sites
     pinned: bool("pinned-tabs", false),
     snapshots: bool("snapshots", true),
+    // Troubleshooting
+    debug: bool("debug", false),
   });
+
+  // Settings are read once and cached; a preference observer drops the cache
+  // whenever any zen.peek.* preference changes. If the observer can't be
+  // registered, settings are simply re-read every time (slower, still correct).
+  const cleanups = [];
+  let settingsCache = null;
+  let settingsObserved = false;
+  const settings = () => (settingsObserved && settingsCache) || (settingsCache = readSettings());
+  {
+    const observer = { observe: () => (settingsCache = null) };
+    try {
+      Services.prefs.addObserver(P, observer);
+      settingsObserved = true;
+      cleanups.push(() => Services.prefs.removeObserver(P, observer));
+    } catch { /* fall back to reading every time */ }
+  }
+
+  // --- Diagnostics -------------------------------------------------------------
+  // The last 60 events are always kept (cheap); with the "debug" setting on they
+  // are also logged. ZenPeek.diagnostics() returns them with the last placement.
+  const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const events = [];
+  function note(event, data = {}) {
+    events.push({ t: Math.round(clock()), event, ...data });
+    if (events.length > 60) events.shift();
+    if (settings().debug) console.log("[Zen Peek] debug:", event, data);
+  }
+  function diagnostics() {
+    const { debug, style, delay, width, items, refreshMs, motion } = settings();
+    return JSON.parse(JSON.stringify({
+      settings: { debug, style, delay, width, items, refreshMs, motion },
+      panel: { style: Zen.panelStyle ?? null, open: Zen.panelOpen() },
+      lastPlacement: Zen.lastPlacement ?? null,
+      window: { w: window.innerWidth, h: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
+      events,
+    }));
+  }
 
   // --- Secrets (calendar address, GitHub token) in the password manager ------
 
@@ -74,6 +113,8 @@
     const logins = await Services.logins.searchLoginsAsync({ origin: LOGIN_ORIGIN, httpRealm: name });
     for (const l of logins) Services.logins.removeLogin(l);
     if (value) await Services.logins.addLoginAsync(new LoginInfo(LOGIN_ORIGIN, null, name, name, value, "", ""));
+    // Drop data and requests made with the old value.
+    cancelLoads();
     cache.map.clear();
   }
 
@@ -102,28 +143,77 @@
 
   // --- Loading card data ---------------------------------------------------
 
+  // Cached data older than this isn't shown while a refresh runs.
+  const MAX_STALE_MS = 30 * 60_000;
   const cache = new Core.Cache(90_000);
-  const inflight = new Map();
+  const inflight = new Map(); // key -> { promise, controller }
+  const keyOf = (card, s) => `${card.type}:${card.account ?? ""}:${s.items}`;
+  const abortedError = () => new Sources.SourceError("aborted", "Cancelled");
 
-  async function load(card, s = settings()) {
+  // Fresh data for a card. Concurrent calls share one request; the request can
+  // be cancelled with cancelLoads(), which rejects with code "aborted".
+  function load(card, s = settings()) {
     cache.ttl = s.refreshMs;
-    const limit = s.items;
-    const key = `${card.type}:${card.account ?? ""}:${limit}`;
+    const key = keyOf(card, s);
     const hit = cache.get(key);
-    if (hit) return hit;
-    if (inflight.has(key)) return inflight.get(key);
-    const p = (async () => {
+    if (hit) return Promise.resolve(hit);
+    const running = inflight.get(key);
+    if (running) return running.promise;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const started = clock();
+    const limit = s.items;
+    const promise = (async () => {
       const fetchFn = (url, init) => fetch(url, init);
       let data;
-      if (card.type === "gmail") data = await Sources.gmail({ fetchFn, account: card.account, limit });
-      else if (card.type === "calendar") data = await Sources.calendar({ fetchFn, icsUrls: (await getSecret("calendar")).split(" ").filter(Boolean), limit: Math.max(limit, 8) });
-      else if (card.type === "github") data = await Sources.github({ fetchFn, token: await getSecret("github"), limit });
-      else if (card.type === "hn") data = await Sources.hn({ fetchFn, limit });
+      if (card.type === "gmail") data = await Sources.gmail({ fetchFn, account: card.account, limit, signal });
+      else if (card.type === "calendar") {
+        const icsUrls = (await getSecret("calendar")).split(" ").filter(Boolean);
+        if (signal.aborted) throw abortedError();
+        data = await Sources.calendar({ fetchFn, icsUrls, limit: Math.max(limit, 8), signal });
+      } else if (card.type === "github") {
+        const token = await getSecret("github");
+        if (signal.aborted) throw abortedError();
+        data = await Sources.github({ fetchFn, token, limit, signal });
+      } else if (card.type === "hn") data = await Sources.hn({ fetchFn, limit, signal });
+      if (signal.aborted) throw abortedError();
       cache.set(key, data);
+      note("fetched", { card: card.type, ms: Math.round(clock() - started) });
       return data;
-    })().finally(() => inflight.delete(key));
-    inflight.set(key, p);
-    return p;
+    })()
+      .catch((e) => {
+        // Whatever failed after a cancel (e.g. reading the body) counts as cancelled.
+        throw signal.aborted ? abortedError() : e;
+      })
+      .finally(() => {
+        if (inflight.get(key)?.controller === controller) inflight.delete(key);
+      });
+    inflight.set(key, { promise, controller });
+    return promise;
+  }
+
+  // Cancel requests nobody is waiting for any more (except `keepKey`).
+  function cancelLoads(keepKey = null) {
+    for (const [key, r] of inflight) {
+      if (key === keepKey) continue;
+      r.controller.abort();
+      inflight.delete(key);
+      note("cancelled", { key });
+    }
+  }
+
+  const hostOf = (tab) => {
+    try {
+      return new URL(Zen.tabUrl(tab)).host;
+    } catch {
+      return "";
+    }
+  };
+
+  // The card to show for a tab, or null (no card for this site, or turned off).
+  function cardForTab(tab, s) {
+    const card = Core.cardFor(Zen.tabUrl(tab));
+    return card && s.cards[card.type] ? card : null;
   }
 
   // --- Rendering (text only; nothing from a site is ever parsed as HTML) -------
@@ -258,6 +348,7 @@
 
   let showTimer = null;
   let hideTimer = null;
+  let prefetchTimer = null;
   let shownFor = null;
   let token = 0;
 
@@ -269,42 +360,81 @@
 
   // Picks up setting changes (style, width, animation) on the next hover, no restart.
   const ensurePanel = (s = settings()) => {
-    Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide, style: s.style });
+    Zen.panel({ onEnter: cancelHide, onLeave: scheduleHide, onLost: () => hide("essential-hidden"), style: s.style });
     Zen.configure?.({ width: s.width, motion: s.motion });
   };
+
+  // Open the panel at `tab`. False if it couldn't (the Essential isn't visible).
+  function openAt(tab, s) {
+    const ok = Zen.openPanel(tab) !== false;
+    note(ok ? "open" : "open-refused", { style: s.style, placement: Zen.lastPlacement ?? null });
+    if (!ok) shownFor = null;
+    return ok;
+  }
 
   async function show(tab) {
     const my = ++token;
     const s = settings();
+    const current = () => my === token && shownFor === tab;
     ensurePanel(s);
     shownFor = tab;
-    let card = Core.cardFor(Zen.tabUrl(tab));
-    if (card && !s.cards[card.type]) card = null; // turned off: show the page instead
-    fill([header(tab, Zen.tabTitle(tab)), h("div", { class: "zp-loading" })]);
-    Zen.openPanel(tab);
-    let nodes;
-    if (card) {
-      try {
-        nodes = RENDER[card.type](tab, await load(card, s), s);
-      } catch (e) {
-        console.warn("[Zen Peek]", card.type, e);
-        nodes = renderError(tab, card, e);
-      }
-    } else {
-      nodes = await renderPage(tab, s);
+    const card = cardForTab(tab, s);
+
+    if (!card) {
+      cancelLoads();
+      fill([header(tab, Zen.tabTitle(tab)), h("div", { class: "zp-loading" })]);
+      if (!openAt(tab, s)) return;
+      const nodes = await renderPage(tab, s);
+      if (current()) fill(nodes);
+      return;
     }
-    if (my === token && shownFor === tab) fill(nodes);
+
+    // Show cached data at once (even if a little old) and refresh it behind the scenes.
+    const key = keyOf(card, s);
+    cancelLoads(key);
+    cache.ttl = s.refreshMs;
+    const cached = cache.peek(key);
+    const usable = cached && (cached.fresh || cached.age < MAX_STALE_MS) ? cached : null;
+    fill(usable ? RENDER[card.type](tab, usable.value, s) : [header(tab, Zen.tabTitle(tab)), h("div", { class: "zp-loading" })]);
+    if (!openAt(tab, s)) return;
+    note("show", { card: card.type, data: usable ? (usable.fresh ? "fresh" : "stale") : "loading" });
+    if (usable?.fresh) return;
+    try {
+      const data = await load(card, s);
+      if (current()) fill(RENDER[card.type](tab, data, s));
+    } catch (e) {
+      if (e?.code === "aborted") return;
+      console.warn("[Zen Peek]", card.type, e);
+      note("error", { card: card.type, code: e?.code || "unknown" });
+      // If old data is on screen, keep it rather than replacing it with an error.
+      if (current() && !usable) fill(renderError(tab, card, e));
+    }
   }
 
-  function hide() {
+  // Start fetching a card's data before its panel opens.
+  function prefetch(tab, s) {
+    const card = cardForTab(tab, s);
+    if (!card) return;
+    const key = keyOf(card, s);
+    cache.ttl = s.refreshMs;
+    if (cache.get(key)) return;
+    cancelLoads(key);
+    note("prefetch", { card: card.type });
+    load(card, s).catch(() => { /* shown (or ignored) when the panel opens */ });
+  }
+
+  function hide(reason = "left") {
     token++;
     shownFor = null;
+    clearTimeout(prefetchTimer);
     Zen.closePanel();
+    cancelLoads();
+    note("hide", { reason });
   }
 
   const scheduleHide = () => {
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hide, 400); // time to move the mouse from the icon to the card
+    hideTimer = setTimeout(() => hide("left"), 400); // time to move the mouse from the icon to the card
   };
   const cancelHide = () => clearTimeout(hideTimer);
 
@@ -315,10 +445,11 @@
     console.warn("[Zen Peek] could not stop the previous copy", e);
   }
 
-  const cleanups = [];
   function dispose() {
     clearTimeout(showTimer);
     clearTimeout(hideTimer);
+    clearTimeout(prefetchTimer);
+    cancelLoads();
     token++;
     for (const f of cleanups.splice(0)) {
       try {
@@ -329,7 +460,7 @@
   }
 
   // For the Browser Console and tests.
-  window.ZenPeek = { show, hide, askCalendar, askGithub, load, cache, dispose };
+  window.ZenPeek = { show, hide, askCalendar, askGithub, load, cache, dispose, diagnostics };
 
   Zen.whenReady().then(() => {
     ensurePanel();
@@ -338,11 +469,20 @@
       enter(tab) {
         cancelHide();
         clearTimeout(showTimer);
+        clearTimeout(prefetchTimer);
+        const s = settings();
         // Moving between Essentials while a preview is open switches instantly.
-        showTimer = setTimeout(() => show(tab), Zen.panelOpen() ? 60 : settings().delay);
+        const delay = Zen.panelOpen() ? 60 : s.delay;
+        // Only the hostname is logged: titles can contain e-mail addresses.
+        note("enter", { host: hostOf(tab), delay });
+        // Start fetching once the pointer rests (not while it only passes over
+        // icons), so the data is usually ready by the time the panel opens.
+        prefetchTimer = setTimeout(() => prefetch(tab, s), Math.min(80, delay));
+        showTimer = setTimeout(() => show(tab), delay);
       },
       leave() {
         clearTimeout(showTimer);
+        clearTimeout(prefetchTimer);
         scheduleHide();
       },
     });
@@ -350,7 +490,7 @@
       { label: "Zen Peek: set calendar address…", command: askCalendar, show: (t) => Core.cardFor(Zen.tabUrl(t))?.type === "calendar" },
       { label: "Zen Peek: set GitHub token…", command: askGithub, show: (t) => Core.cardFor(Zen.tabUrl(t))?.type === "github" },
     ]);
-    const onKey = (e) => e.key === "Escape" && Zen.panelOpen() && hide();
+    const onKey = (e) => e.key === "Escape" && Zen.panelOpen() && hide("escape");
     window.addEventListener("keydown", onKey, true);
     cleanups.push(stop, () => window.removeEventListener("keydown", onKey, true));
     window.addEventListener("unload", dispose, { once: true });

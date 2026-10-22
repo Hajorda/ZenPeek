@@ -11,7 +11,7 @@ Arc-style previews for [Zen Browser](https://zen-browser.app): your latest mail,
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.1.0-F5B83D)
+![Version](https://img.shields.io/badge/version-0.2.0-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>
@@ -69,7 +69,7 @@ Open Sine → Zen Peek. Changes apply on your next hover; no restart needed.
 
 | Setting | Options | Default |
 | --- | --- | --- |
-| Preview style | Floating card (glides between Essentials) · Classic popup (with an arrow) | Floating card |
+| Preview style | Floating card (glides between Essentials) · Classic (an arrow points at the Essential; switches instantly) | Floating card |
 | Show the preview after hovering for | 0.2 – 1.2 seconds | 0.5 s |
 | Card width | Narrow · Normal · Wide | Normal |
 | Items per card | 3 · 5 · 8 · 10 | 5 |
@@ -121,6 +121,10 @@ npm test   # parsers (Gmail, iCal incl. recurrence and time zones, GitHub, HN), 
 | [`mod/userChrome.css`](mod/userChrome.css) | The popup's look (follows Zen's light/dark theme) |
 
 **Debugging:** in the Browser Toolbox console, `ZenPeek.cache.map.clear()` forces a refresh. Log lines start with `[Zen Peek]`.
+
+**Reporting a bug:** turn on **Troubleshooting → Log what Zen Peek does** in the settings, reproduce the problem, then run `copy(JSON.stringify(ZenPeek.diagnostics(), null, 2))` in the Browser Console and paste the result into an issue. It contains timings, where the preview was placed and the sidebar's position, and only hostnames (no tab titles, mail content or tokens).
+
+**How previews load:** data starts loading when the pointer rests on an Essential (not while it just passes over), so it's usually ready when the preview opens. Cached data is shown instantly, even if slightly old (up to 30 minutes), and refreshed in the background; if the refresh fails, the old data stays. Requests are cancelled when you move away.
 
 **When Zen updates:** everything Zen Peek relies on is listed at the top of [`mod/zen-adapter.uc.js`](mod/zen-adapter.uc.js) (checked against Zen's source on 2026-09-29).
 

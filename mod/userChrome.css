@@ -1,6 +1,7 @@
-/* Zen Peek. Two styles share the same content styles:
-   - #zen-peek-panel.zp-card  floating card drawn in the window (default)
-   - panel#zen-peek-panel     Zen's native popup with an arrow (classic) */
+/* Zen Peek. Both styles are drawn inside Zen's window and share the content styles:
+   - #zen-peek-panel.zp-card             floating card that glides (default)
+   - #zen-peek-panel.zp-card.zp-classic  classic: an arrow points at the Essential,
+                                         fades but never glides */
 #zen-peek-panel {
   --panel-padding: 0;
   --arrowpanel-padding: 0;
@@ -38,8 +39,60 @@
 #zen-peek-panel.zp-card[zp-motion="off"] {
   transition: none;
 }
+/* Classic style */
+#zen-peek-panel.zp-card.zp-classic {
+  transition: opacity 0.1s ease;
+}
+#zen-peek-panel.zp-card.zp-classic[zp-motion="fast"] {
+  transition-duration: 0.06s;
+}
+#zen-peek-panel.zp-card.zp-classic[zp-motion="off"] {
+  transition: none;
+}
+.zp-arrow {
+  position: absolute;
+  top: calc(var(--zp-arrow-y, 24px) - 11px);
+  width: 12px;
+  height: 22px;
+  pointer-events: none;
+}
+.zp-arrow::before,
+.zp-arrow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+/* Outer triangle = the card's thin border; inner triangle = the card's background. */
+.zp-arrow::before {
+  background: light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.14));
+}
+.zp-arrow::after {
+  background: var(--zp-bg);
+}
+#zen-peek-panel[zp-side="left"] .zp-arrow {
+  left: -11px;
+}
+#zen-peek-panel[zp-side="left"] .zp-arrow::before,
+#zen-peek-panel[zp-side="left"] .zp-arrow::after {
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+#zen-peek-panel[zp-side="left"] .zp-arrow::after {
+  inset: 1px -1px 1px 1.5px;
+}
+#zen-peek-panel[zp-side="right"] .zp-arrow {
+  right: -11px;
+}
+#zen-peek-panel[zp-side="right"] .zp-arrow::before,
+#zen-peek-panel[zp-side="right"] .zp-arrow::after {
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+#zen-peek-panel[zp-side="right"] .zp-arrow::after {
+  inset: 1px 1.5px 1px -1px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  #zen-peek-panel.zp-card { transition: none; }
+  #zen-peek-panel.zp-card,
+  #zen-peek-panel.zp-card.zp-classic { transition: none; }
 }
 #zen-peek-root {
   width: 320px;

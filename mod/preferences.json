@@ -15,7 +15,7 @@
         "value": "card"
       },
       {
-        "label": "Classic popup (with an arrow)",
+        "label": "Classic (arrow points at the Essential, switches instantly)",
         "value": "popup"
       }
     ]
@@ -248,6 +248,16 @@
     "property": "zen.peek.pinned-tabs",
     "type": "checkbox",
     "label": "Also preview pinned tabs (not only Essentials)",
+    "defaultValue": false
+  },
+  {
+    "type": "separator",
+    "label": "Troubleshooting"
+  },
+  {
+    "property": "zen.peek.debug",
+    "type": "checkbox",
+    "label": "Log what Zen Peek does to the Browser Console (for bug reports)",
     "defaultValue": false
   }
 ]

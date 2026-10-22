@@ -89,3 +89,36 @@ test("hacker news: top stories", async () => {
   const r = await S.hn({ fetchFn: f, limit: 2 });
   assert.deepEqual([...r.items.map((i) => i.title)], ["Story 11", "Story 12"]);
 });
+
+test("every source forwards the cancel signal, and a cancel is reported as 'aborted'", async () => {
+  const hanging = () => {
+    const seen = [];
+    const fn = (url, init) => {
+      seen.push(init?.signal);
+      return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("x"), { name: "AbortError" }))));
+    };
+    fn.seen = seen;
+    return fn;
+  };
+  const cases = [
+    (fetchFn, signal) => S.gmail({ fetchFn, signal }),
+    (fetchFn, signal) => S.calendar({ fetchFn, icsUrls: ["https://cal/a.ics"], signal }),
+    (fetchFn, signal) => S.github({ fetchFn, token: "t", signal }),
+    (fetchFn, signal) => S.hn({ fetchFn, signal }),
+  ];
+  for (const run of cases) {
+    const fetchFn = hanging();
+    const c = new AbortController();
+    const p = run(fetchFn, c.signal);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.ok(fetchFn.seen.length > 0 && fetchFn.seen.every((sig) => sig === c.signal), "signal passed to fetch");
+    c.abort();
+    await assert.rejects(p, (e) => e.code === "aborted");
+  }
+  // Already cancelled: no request at all.
+  const fetchFn = hanging();
+  const c = new AbortController();
+  c.abort();
+  await assert.rejects(S.gmail({ fetchFn, signal: c.signal }), (e) => e.code === "aborted");
+  assert.equal(fetchFn.seen.length, 0);
+});

@@ -17,8 +17,20 @@ const findAll = (n, pred, out = []) => {
   return out;
 };
 
-function setup({ routes = {}, secrets = {}, prefs = {} } = {}) {
-  const pref = (k, d) => (k.replace("zen.peek.", "") in prefs ? prefs[k.replace("zen.peek.", "")] : d);
+// Options for the newer tests (defaults keep the original behaviour):
+//  observable  — prefs support observers; setPref() changes a pref and notifies
+//  fetchImpl   — replace the fake network: (url, init) => Response-like
+//  openResult  — what the panel's openPanel() returns (false = refused)
+function setup({ routes = {}, secrets = {}, prefs = {}, observable = false, fetchImpl = null, openResult = undefined } = {}) {
+  prefs = { ...prefs };
+  let reads = 0;
+  const observers = new Set();
+  const pref = (k, d) => {
+    reads++;
+    return k.replace("zen.peek.", "") in prefs ? prefs[k.replace("zen.peek.", "")] : d;
+  };
+  const logs = [];
+  let panelOpts = null;
   const calls = [];
   const opened = [];
   const root = { children: [], replaceChildren(...c) { this.children = c; } };
@@ -33,11 +45,16 @@ function setup({ routes = {}, secrets = {}, prefs = {} } = {}) {
     tabIcon: () => "",
     isLoaded: (t) => !!t.loaded,
     snapshot: async () => node("canvas"),
-    panel: () => ({}),
+    panel: (o) => ((panelOpts = o), {}),
     panelRoot: () => root,
     panelOpen: () => open,
-    openPanel() { open = true; },
+    openPanel() {
+      if (openResult === false) return false;
+      open = true;
+      return openResult;
+    },
     closePanel() { open = false; },
+    lastPlacement: { style: "test" },
     html: node,
     openLink: (url, tab, o) => opened.push({ url, tab: tab.label, ...o }),
     addTabMenuItems() {},
@@ -45,6 +62,7 @@ function setup({ routes = {}, secrets = {}, prefs = {} } = {}) {
   const logins = Object.entries(secrets).map(([k, v]) => ({ origin: "chrome://zen-peek", httpRealm: k, password: v }));
   const fetchFn = async (url, init) => {
     calls.push({ url, init });
+    if (fetchImpl) return fetchImpl(url, init);
     const r = routes[url];
     if (r === undefined) return { ok: false, status: 404, text: async () => "", json: async () => ({}) };
     return { ok: true, status: 200, text: async () => r, json: async () => JSON.parse(r) };
@@ -52,18 +70,33 @@ function setup({ routes = {}, secrets = {}, prefs = {} } = {}) {
   const win = { addEventListener() {}, removeEventListener() {} };
   const ctx = loadGlobals(["core.uc.js", "sources.uc.js"], {
     Intl, window: win, fetch: fetchFn, ZPZen: Zen, Ci: {}, Components: { Constructor: () => function () {} },
+    console: { ...console, log: (...a) => logs.push(a.join(" ")), warn: (...a) => logs.push(a.join(" ")) },
     Services: {
       prefs: {
         getBoolPref: (k, d) => pref(k, d),
         getIntPref: (k, d) => (k.endsWith("delay") ? pref(k, 150) : pref(k, d)),
         getStringPref: (k, d) => pref(k, d),
+        ...(observable ? { addObserver: (b, o) => observers.add(o), removeObserver: (b, o) => observers.delete(o) } : {}),
       },
       logins: { searchLoginsAsync: async ({ httpRealm }) => logins.filter((l) => l.httpRealm === httpRealm) },
       prompt: {},
     },
   });
   vm.runInContext(readFileSync(new URL("../mod/peek.uc.js", import.meta.url), "utf8"), ctx);
-  return { root, calls, opened, isOpen: () => open, hover: () => hover, rendered: () => root.children.map(textOf).join(" | "), rows: () => root.children.filter((n) => /zp-row/.test(n.props.class || "")) };
+  return {
+    root, calls, opened, logs, ctx,
+    isOpen: () => open,
+    hover: () => hover,
+    rendered: () => root.children.map(textOf).join(" | "),
+    rows: () => root.children.filter((n) => /zp-row/.test(n.props.class || "")),
+    reads: () => reads,
+    panelOpts: () => panelOpts,
+    peek: () => win.ZenPeek,
+    setPref(name, value) {
+      prefs[name] = value;
+      for (const o of observers) o.observe(null, "nsPref:changed", `zen.peek.${name}`);
+    },
+  };
 }
 
 const gmailTab = { label: "Gmail", url: "https://mail.google.com/mail/u/0/#inbox" };
@@ -235,4 +268,201 @@ test("settings: GitHub sections can be turned off", async () => {
   await sleep(250);
   assert.doesNotMatch(s.rendered(), /Review me|Notifications/);
   assert.match(s.rendered(), /turned off/);
+});
+
+// --- Classic-popup fixes: settings cache, prefetch, cancelling, stale data, diagnostics ---
+
+const atomWith = (subject) => `<feed><fullcount>1</fullcount><entry><title>${subject}</title><issued>${new Date().toISOString()}</issued><author><name>Ada</name></author><link href="https://mail.google.com/mail/u/0/#inbox/9"/></entry></feed>`;
+const GMAIL_FEED = "https://mail.google.com/mail/u/0/feed/atom";
+
+// A network that answers only when told to, and honours AbortSignal like fetch().
+function controllableNetwork() {
+  const pending = [];
+  const fetchImpl = (url, init) =>
+    new Promise((resolve, reject) => {
+      const req = { url, signal: init?.signal, resolve, reject };
+      pending.push(req);
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    });
+  const respond = (body, i = pending.length - 1) =>
+    pending[i].resolve({ ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) });
+  return { pending, fetchImpl, respond };
+}
+
+test("settings are read once and refreshed when a preference changes", async () => {
+  const s = setup({ observable: true, routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  const afterStart = s.reads();
+  for (let i = 0; i < 3; i++) {
+    s.hover().enter(gmailTab);
+    await sleep(220);
+    s.hover().leave(gmailTab);
+    await sleep(450);
+  }
+  assert.equal(s.reads(), afterStart, "no preference reads while hovering");
+  assert.equal(s.rows().length, 5);
+
+  s.setPref("items", 3); // observer drops the cache; next hover reads again
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  assert.ok(s.reads() > afterStart);
+  assert.equal(s.rows().length, 3);
+});
+
+test("data starts loading while the hover delay runs, and is shown without a placeholder", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl, prefs: { delay: 300 } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(120);
+  assert.equal(net.pending.length, 1, "request started during the delay");
+  assert.equal(s.isOpen(), false, "panel not open yet");
+  net.respond(atomWith("Ready before open"));
+  await sleep(250);
+  assert.equal(s.isOpen(), true);
+  assert.match(s.rendered(), /Ready before open/);
+  assert.doesNotMatch(JSON.stringify(s.root.children.map((n) => n.props.class)), /zp-loading/, "no loading placeholder");
+});
+
+test("passing quickly over an Essential doesn't start a request", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl, prefs: { delay: 300 } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(30);
+  s.hover().leave(gmailTab);
+  await sleep(120);
+  assert.equal(net.pending.length, 0);
+});
+
+test("leaving cancels the request; coming back starts a new one", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220); // panel open, request pending
+  assert.equal(s.isOpen(), true);
+  s.hover().leave(gmailTab);
+  await sleep(450); // hide
+  assert.equal(s.isOpen(), false);
+  assert.equal(net.pending[0].signal.aborted, true, "request cancelled");
+  assert.doesNotMatch(s.logs.join("\n"), /Zen Peek\] gmail/, "a cancel isn't reported as an error");
+
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  assert.equal(net.pending.length, 2, "fresh request after coming back");
+  net.respond(atomWith("Second try"));
+  await sleep(20);
+  assert.match(s.rendered(), /Second try/);
+});
+
+test("moving to another Essential cancels the previous Essential's request", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  s.hover().enter({ label: "HN", url: "https://news.ycombinator.com/" });
+  await sleep(100);
+  assert.equal(net.pending[0].signal.aborted, true);
+  assert.equal(net.pending[1].url, "https://hacker-news.firebaseio.com/v0/topstories.json");
+});
+
+test("old data is shown instantly and replaced when the refresh arrives", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  net.respond(atomWith("Old subject"));
+  await sleep(20);
+  s.hover().leave(gmailTab);
+  await sleep(450);
+  // Age the cached entry: past the refresh interval, within the stale window.
+  for (const e of s.peek().cache.map.values()) e.at -= 5 * 60_000;
+
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  assert.match(s.rendered(), /Old subject/, "stale data shown immediately");
+  net.respond(atomWith("New subject"));
+  await sleep(20);
+  assert.match(s.rendered(), /New subject/, "refreshed in place");
+});
+
+test("if a refresh fails, the old data stays on screen", async () => {
+  let fail = false;
+  const s = setup({
+    fetchImpl: async () => (fail ? { ok: false, status: 500, text: async () => "" } : { ok: true, status: 200, text: async () => atomWith("Keep me") }),
+  });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  s.hover().leave(gmailTab);
+  await sleep(450);
+  for (const e of s.peek().cache.map.values()) e.at -= 5 * 60_000;
+  fail = true;
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.match(s.rendered(), /Keep me/);
+  assert.doesNotMatch(s.rendered(), /service returned an error/);
+});
+
+test("very old data is not shown; a loading state appears instead", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  net.respond(atomWith("Ancient"));
+  await sleep(20);
+  s.hover().leave(gmailTab);
+  await sleep(450);
+  for (const e of s.peek().cache.map.values()) e.at -= 2 * 60 * 60_000; // 2 hours
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  assert.doesNotMatch(s.rendered(), /Ancient/);
+});
+
+test("classic: if the Essential isn't visible, nothing opens and nothing breaks", async () => {
+  const s = setup({ openResult: false, routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(s.isOpen(), false);
+  const d = s.peek().diagnostics();
+  assert.ok(d.events.some((e) => e.event === "open-refused"));
+});
+
+test("classic: when the Essential disappears while open, the preview closes and requests stop", async () => {
+  const net = controllableNetwork();
+  const s = setup({ fetchImpl: net.fetchImpl });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(220);
+  assert.equal(s.isOpen(), true);
+  s.panelOpts().onLost(); // what the adapter calls when the Essential is hidden
+  assert.equal(s.isOpen(), false);
+  assert.equal(net.pending[0].signal.aborted, true);
+  assert.ok(s.peek().diagnostics().events.some((e) => e.event === "hide" && e.reason === "essential-hidden"));
+});
+
+test("diagnostics: recent events are kept; debug logging only when switched on", async () => {
+  const s = setup({ routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  const d = s.peek().diagnostics();
+  const names = d.events.map((e) => e.event);
+  for (const n of ["enter", "prefetch", "open", "show"]) assert.ok(names.includes(n), n);
+  assert.equal(d.lastPlacement.style, "test");
+  assert.ok(!s.logs.some((l) => l.includes("debug:")), "quiet by default");
+  assert.doesNotMatch(JSON.stringify(d), /ghp_|password/i, "no secrets in diagnostics");
+  assert.ok(d.events.some((e) => e.event === "enter" && e.host === "mail.google.com"), "hostname logged");
+  assert.doesNotMatch(JSON.stringify(d.events), /"title"/, "tab titles are not logged");
+
+  const s2 = setup({ routes: { [GMAIL_FEED]: manyMails }, prefs: { debug: true } });
+  await sleep(5);
+  s2.hover().enter(gmailTab);
+  await sleep(250);
+  assert.ok(s2.logs.some((l) => l.includes("[Zen Peek] debug: open")));
 });

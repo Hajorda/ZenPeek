@@ -5,7 +5,7 @@
 //   tab[zen-essential], tab.pinned, tab._zenPinnedInitialState.entry.url,
 //   gBrowser.{tabContainer, selectedTab, selectedBrowser, getIcon},
 //   browsingContext.currentWindowGlobal.drawSnapshot (as Zen's Glance uses it),
-//   gZenVerticalTabsManager._prefsRightSide (which side the card opens on),
+//   gZenVerticalTabsManager._prefsRightSide (which side the panel opens on), #navigator-toolbox (the sidebar),
 //   gZenWorkspaces.{promiseInitialized, privateWindowOrDisabled}, #tabContextMenu, TabContextMenu.contextTab,
 //   openTrustedLinkIn
 // eslint-disable-next-line no-var
@@ -14,6 +14,10 @@ var ZPZen = (() => {
   const HTML = "http://www.w3.org/1999/xhtml";
   let panel = null;
   let panelStyle = null;
+  let resizeObserver = null;
+  let followFrame = 0;
+  let onAnchorLost = null;
+  let lastPlacement = null;
 
   return {
     get supported() {
@@ -86,17 +90,18 @@ var ZPZen = (() => {
       }
     },
 
-    // --- Popup -----------------------------------------------------------------
-
-    // Two styles:
-    //  "card"  — a floating card drawn in Zen's own window; glides between Essentials.
-    //  "popup" — Zen's native popup with an arrow (the original style). It is
-    //            reopened rather than moved, because moving a native popup can
-    //            leave a ghost frame behind.
-    panel({ onEnter, onLeave, style = "card" }) {
+    // --- Preview panel -----------------------------------------------------------
+    // Both styles are drawn inside Zen's own window (no native popup window), so
+    // they open instantly and are always placed from the Essential's live position.
+    //  "card"  — floats beside the sidebar and glides between Essentials.
+    //  "popup" — the classic look: an arrow points at the hovered Essential; it
+    //            switches instantly, follows the Essential if the sidebar moves,
+    //            and closes if the Essential disappears.
+    panel({ onEnter, onLeave, onLost, style = "card" }) {
       if (panel && panelStyle === style) return panel;
       this.removePanel();
-      // Also remove a card or popup left by an older copy (update without restart).
+      // Remove a panel left by an older copy (after an update without restart).
+      // Older versions used a native <panel>, so close it first.
       for (const old of document.querySelectorAll("#zen-peek-panel")) {
         try {
           old.hidePopup?.();
@@ -105,86 +110,156 @@ var ZPZen = (() => {
       }
       const root = document.createElementNS(HTML, "div");
       root.id = "zen-peek-root";
-      if (style === "popup") {
-        panel = document.createXULElement("panel");
-        panel.setAttribute("noautofocus", "true");
-        panel.setAttribute("consumeoutsideclicks", "false");
-        panel.setAttribute("level", "parent");
-        panel.append(root);
-        document.getElementById("mainPopupSet").append(panel);
-      } else {
-        panel = document.createElementNS(HTML, "div");
-        panel.className = "zp-card";
-        panel.append(root);
-        document.documentElement.append(panel);
-        // Keep it on screen when its content grows or shrinks.
-        new ResizeObserver(() => this.reposition()).observe(root);
-      }
+      panel = document.createElementNS(HTML, "div");
       panel.id = "zen-peek-panel";
+      panel.className = style === "popup" ? "zp-card zp-classic" : "zp-card";
+      panel.append(root);
+      if (style === "popup") {
+        const arrow = document.createElementNS(HTML, "div");
+        arrow.className = "zp-arrow";
+        panel.append(arrow);
+      }
+      document.documentElement.append(panel);
       panelStyle = style;
+      onAnchorLost = onLost || null;
       panel.addEventListener("mouseenter", onEnter);
       panel.addEventListener("mouseleave", onLeave);
+      // Keep it on screen when its content grows or shrinks.
+      resizeObserver = new ResizeObserver(() => this.reposition());
+      resizeObserver.observe(root);
       return panel;
     },
 
     panelRoot: () => panel?.querySelector("#zen-peek-root"),
-    panelOpen() {
-      if (!panel) return false;
-      if (panelStyle === "popup") return panel.state === "open" || panel.state === "showing";
-      return panel.classList.contains("zp-open");
+    panelOpen: () => !!panel?.classList.contains("zp-open"),
+    get panelStyle() {
+      return panelStyle;
+    },
+    // Where the panel was last placed and why (for diagnostics).
+    get lastPlacement() {
+      return lastPlacement;
     },
 
-    // Card style: place the card beside the sidebar, kept inside the window.
+    // Is the Essential actually on screen? A hidden, collapsed or off-screen
+    // anchor would give a meaningless position, so the classic style won't open there.
+    anchorUsable(a) {
+      if (!a?.isConnected) return false;
+      const r = a.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return false;
+      if (r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight) return false;
+      try {
+        if (a.checkVisibility && !a.checkVisibility({ visibilityProperty: true })) return false;
+      } catch { /* older engine: rect checks above are enough */ }
+      return true;
+    },
+
+    // Place the panel beside the sidebar, kept inside the window.
     reposition() {
-      if (panelStyle !== "card" || !panel || !this._anchor || !this.panelOpen()) return;
+      if (!panel || !this._anchor || !this.panelOpen()) return null;
       const r = this._anchor.getBoundingClientRect();
       const w = panel.offsetWidth || 320;
       const h = panel.offsetHeight || 120;
       const gap = 8;
       const right = !!gZenVerticalTabsManager?._prefsRightSide;
-      // Open outside the sidebar, so the card never covers other Essentials.
+      // Open outside the sidebar, so the panel never covers other Essentials.
       const sidebar = document.getElementById("navigator-toolbox");
       const edge = sidebar?.contains(this._anchor) ? sidebar.getBoundingClientRect() : r;
-      let x = right ? edge.left - w - gap : edge.right + gap;
-      let y = r.top - 6;
+      let x, y;
+      let arrowY = null;
+      if (panelStyle === "popup") {
+        // Classic: the arrow (11px) sits between the sidebar and the panel and
+        // points at the middle of the Essential.
+        const ARROW_GAP = 16;
+        const centerY = r.top + r.height / 2;
+        x = right ? edge.left - w - ARROW_GAP : edge.right + ARROW_GAP;
+        y = centerY - 24;
+      } else {
+        x = right ? edge.left - w - gap : edge.right + gap;
+        y = r.top - 6;
+      }
+      const wantX = x;
+      const wantY = y;
       x = Math.max(gap, Math.min(x, window.innerWidth - w - gap));
       y = Math.max(gap, Math.min(y, window.innerHeight - h - gap));
+      if (panelStyle === "popup") {
+        arrowY = Math.max(16, Math.min(r.top + r.height / 2 - y, h - 16));
+        panel.style.setProperty("--zp-arrow-y", `${Math.round(arrowY)}px`);
+        panel.setAttribute("zp-side", right ? "right" : "left");
+      }
       panel.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+      const box = (b) => ({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
+      lastPlacement = {
+        style: panelStyle,
+        side: right ? "right" : "left",
+        anchor: box(r),
+        sidebar: sidebar?.contains(this._anchor) ? box(edge) : null,
+        panel: { x: Math.round(x), y: Math.round(y), w, h },
+        clamped: Math.round(wantX) !== Math.round(x) || Math.round(wantY) !== Math.round(y),
+        arrowY: arrowY === null ? null : Math.round(arrowY),
+        window: { w: window.innerWidth, h: window.innerHeight },
+      };
+      return lastPlacement;
     },
 
+    // Returns false if it couldn't open (classic: the Essential isn't visible).
     openPanel(anchor) {
-      const moved = this._anchor !== anchor;
-      this._anchor = anchor;
       if (panelStyle === "popup") {
-        if (this.panelOpen()) {
-          if (!moved) return;
-          panel.hidePopup(); // reopen at the new Essential instead of moving
+        if (!this.anchorUsable(anchor)) {
+          this.closePanel();
+          return false;
         }
-        const right = !!gZenVerticalTabsManager?._prefsRightSide;
-        panel.openPopup(anchor, { position: right ? "topleft topright" : "topright topleft", x: right ? -8 : 8, y: 0 });
-        return;
+        this._anchor = anchor;
+        panel.classList.add("zp-open"); // fades in; position is set in the same frame
+        this.reposition();
+        this._follow();
+        return true;
       }
+      this._anchor = anchor;
       if (this.panelOpen()) {
         this.reposition(); // already visible: glide to the new Essential
-        return;
+        return true;
       }
       // First show: jump into place without the glide, then fade in.
       panel.classList.add("zp-instant", "zp-open");
       this.reposition();
       panel.getBoundingClientRect();
       panel.classList.remove("zp-instant");
+      return true;
+    },
+
+    // Classic only: while open, keep the panel next to its Essential (the
+    // sidebar may still be sliding or resizing) and close it if the Essential
+    // disappears. One cheap rect read per frame, only while open.
+    _follow() {
+      if (followFrame) return;
+      let lastKey = "";
+      const tick = () => {
+        followFrame = 0;
+        if (panelStyle !== "popup" || !this.panelOpen() || !this._anchor) return;
+        if (!this.anchorUsable(this._anchor)) {
+          this.closePanel();
+          onAnchorLost?.();
+          return;
+        }
+        const r = this._anchor.getBoundingClientRect();
+        const e = document.getElementById("navigator-toolbox")?.getBoundingClientRect();
+        const key = `${r.left},${r.top},${r.width},${r.height},${e?.left},${e?.right}`;
+        if (key !== lastKey) {
+          lastKey = key;
+          this.reposition();
+        }
+        followFrame = requestAnimationFrame(tick);
+      };
+      followFrame = requestAnimationFrame(tick);
     },
 
     closePanel() {
-      if (!panel) return;
-      if (panelStyle === "popup") {
-        if (this.panelOpen()) panel.hidePopup();
-      } else {
-        panel.classList.remove("zp-open");
-      }
+      if (followFrame) cancelAnimationFrame(followFrame);
+      followFrame = 0;
+      panel?.classList.remove("zp-open");
     },
 
-    // Card width and animation speed (applied on every show).
+    // Panel width and animation speed (applied on every show).
     configure({ width, motion }) {
       const root = this.panelRoot();
       if (root) root.style.width = `${width}px`;
@@ -192,12 +267,15 @@ var ZPZen = (() => {
     },
 
     removePanel() {
-      try {
-        panel?.hidePopup?.();
-      } catch { /* not open */ }
+      if (followFrame) cancelAnimationFrame(followFrame);
+      followFrame = 0;
+      resizeObserver?.disconnect();
+      resizeObserver = null;
       panel?.remove();
       panel = null;
       panelStyle = null;
+      onAnchorLost = null;
+      this._anchor = null;
     },
 
     html(tagName, props = {}, children = []) {

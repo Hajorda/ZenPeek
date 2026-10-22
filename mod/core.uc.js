@@ -323,6 +323,14 @@ var ZPCore = (() => {
       const e = this.map.get(key);
       return e && this.now() - e.at < this.ttl ? e.value : undefined;
     }
+    // Like get(), but also returns expired entries, marked as not fresh, so a
+    // caller can show them instantly while it fetches new data.
+    peek(key) {
+      const e = this.map.get(key);
+      if (!e) return undefined;
+      const age = this.now() - e.at;
+      return { value: e.value, age, fresh: age < this.ttl };
+    }
     set(key, value) {
       this.map.set(key, { value, at: this.now() });
     }
