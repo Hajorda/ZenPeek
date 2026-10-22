@@ -44,10 +44,10 @@ function makeBus() {
 }
 
 function setup({
-  routes = {}, secrets = {}, prefs = {}, observable = false, fetchImpl = null, openResult = undefined,
+  routes = {}, secrets = {}, prefs: givenPrefs = {}, observable = false, fetchImpl = null, openResult = undefined,
   tabs = [], active = true, bus = null, files = null, panelRect = null, locale = "en-US",
 } = {}) {
-  prefs = { ...prefs };
+  let prefs = { "gmail-pages": 1, ...givenPrefs };
   let reads = 0;
   const observers = new Set();
   const pref = (k, d) => {
@@ -64,6 +64,7 @@ function setup({
   let open = false;
   let hover;
   let tabsChanged;
+  let clickOutside;
   let pointer;
   const keydown = [];
   const Zen = {
@@ -108,9 +109,14 @@ function setup({
     removePanel() {},
     html: node,
     openLink: (url, tab, o) => opened.push({ url, tab: tab.label, ...o }),
-    addTabMenuItems() {
+    addTabMenuItems(items) {
       menu.added++;
+      menu.items = items;
       return () => menu.removed++;
+    },
+    onClickOutside(fn) {
+      clickOutside = fn;
+      return () => {};
     },
   };
   const logins = Object.entries(secrets).map(([k, v]) => ({ origin: "chrome://zen-peek", httpRealm: k, password: v }));
@@ -152,6 +158,10 @@ function setup({
         getBoolPref: (k, d) => pref(k, d),
         getIntPref: (k, d) => (k.endsWith("delay") ? pref(k, 150) : pref(k, d)),
         getStringPref: (k, d) => pref(k, d),
+        setStringPref: (k, v) => {
+          prefs[k.replace("zen.peek.", "")] = v;
+          for (const o of observers) o.observe(null, "nsPref:changed", k);
+        },
         ...(observable ? { addObserver: (b, o) => observers.add(o), removeObserver: (b, o) => observers.delete(o) } : {}),
       },
       logins: { searchLoginsAsync: async ({ httpRealm }) => logins.filter((l) => l.httpRealm === httpRealm) },
@@ -166,7 +176,9 @@ function setup({
     isOpen: () => open,
     hover: () => hover,
     rendered: () => root.children.map(textOf).join(" | "),
-    rows: () => root.children.filter((n) => /zp-row/.test(n.props.class || "")),
+    rows: () => findAll({ props: {}, children: root.children }, (n) => /(^| )zp-row( |$)/.test(n.props?.class || "")),
+    buttons: () => findAll({ props: {}, children: root.children }, (n) => n.tag === "button" && !/zp-pin|zp-fab/.test(n.props?.class || "")),
+    clickOutside: (target = null) => clickOutside(target),
     find: (pred) => findAll({ props: {}, children: root.children }, pred),
     reads: () => reads,
     panelOpts: () => panelOpts,
@@ -234,7 +246,7 @@ test("calendar without an address explains setup and offers a button", async () 
   s.hover().enter({ label: "Calendar", url: "https://calendar.google.com/calendar/r" });
   await sleep(250);
   assert.match(s.rendered(), /secret iCal address/);
-  assert.equal(findAll({ children: s.root.children }, (n) => n.tag === "button").length, 1);
+  assert.equal(s.buttons().length, 1);
   assert.equal(s.calls.length, 0);
 });
 
@@ -663,7 +675,7 @@ test("rate limits: the message says when, and no request is made until then", as
   s.hover().enter(gmailTab);
   await sleep(250);
   assert.match(s.rendered(), /Too many requests for now\. Trying again at/);
-  assert.equal(s.find((n) => n.tag === "button").length, 0, "no retry button");
+  assert.equal(s.buttons().length, 0, "no retry button");
   s.hover().leave(gmailTab);
   await sleep(450);
   s.hover().enter(gmailTab);
@@ -683,7 +695,7 @@ test("a service that doesn't answer shows a timeout with a Try again button", as
   s.hover().enter(gmailTab);
   await sleep(3300);
   assert.match(s.rendered(), /didn't answer in time/);
-  const [retry] = s.find((n) => n.tag === "button");
+  const [retry] = s.buttons();
   assert.match(retry.text, /Try again/);
   hang = false;
   retry.props.onclick();
@@ -888,4 +900,95 @@ test("rows are keyboard-accessible links", async () => {
   assert.equal(s.opened.length, 1);
   row.props.onauxclick({ button: 1 });
   assert.equal(s.opened[1].newTab, true, "middle click opens a new tab");
+});
+
+// --- Pages, pin, "show as", mark as read, weather, "+", cards from other mods ---
+
+test("gmail: more mail than fits shows pages of the same size, plus a + for a new mail", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { items: 3, "gmail-pages": 3 } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  const pages = s.find((n) => n.props?.class === "zp-page");
+  assert.deepEqual(pages.map((p) => p.children.length), [3, 3]);
+  assert.equal(s.find((n) => n.props?.class === "zp-dot").length, 2);
+  const [fab] = s.find((n) => n.props?.class === "zp-fab");
+  fab.props.onclick({ button: 0 });
+  assert.match(s.opened.at(-1).url, /compose=new/);
+});
+
+test("pin: a pinned preview ignores the mouse leaving and other Essentials; a click elsewhere closes it", async () => {
+  const s = setup({ routes: gmailRoute });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  const [pin] = s.find((n) => /zp-pin/.test(n.props?.class || ""));
+  pin.props.onclick({ currentTarget: { setAttribute() {} } });
+  s.hover().leave(gmailTab);
+  s.hover().enter({ label: "HN", url: "https://news.ycombinator.com/" });
+  await sleep(500);
+  assert.equal(s.isOpen(), true);
+  assert.match(s.rendered(), /Gmail/);
+  s.clickOutside();
+  assert.equal(s.isOpen(), false);
+});
+
+test("show as: an Essential can use another card, or just the page", async () => {
+  const tab = { label: "Forecast", url: "https://example.com/forecast", loaded: true };
+  const s = setup({ observable: true, prefs: { "weather-location": "Istanbul" } });
+  await sleep(5);
+  const showAs = s.menu.items.find((i) => i.id === "show-as");
+  showAs.submenu(tab).find((o) => /Weather/.test(o.label)).command();
+  s.hover().enter(tab);
+  await sleep(250);
+  assert.ok(s.calls.some((c) => c.url.includes("geocoding-api.open-meteo.com")), "the weather card loads");
+  showAs.submenu(tab).find((o) => o.label === "Page preview").command();
+  s.hover().leave(tab);
+  await sleep(500);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.ok(showAs.submenu(gmailTab).find((o) => o.label === "Automatic").checked);
+});
+
+test("github: marking a notification as read removes it at once", async () => {
+  const routes = (url, init) => {
+    if (url.includes("/notifications/threads/")) return init.method === "PATCH" ? "" : undefined;
+    if (url.includes("/notifications")) {
+      return JSON.stringify([{ id: "42", reason: "mention", updated_at: new Date().toISOString(), repository: { full_name: "a/b" }, subject: { title: "Ping", type: "Issue", url: "https://api.github.com/repos/a/b/issues/1" } }]);
+    }
+    if (url.endsWith("/graphql")) return JSON.stringify({ data: {} });
+    return undefined;
+  };
+  const s = setup({ routes, secrets: { github: "t" } });
+  await sleep(5);
+  s.hover().enter({ label: "GitHub", url: "https://github.com/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Ping/);
+  const [read] = s.find((n) => /zp-action-quiet/.test(n.props?.class || ""));
+  await read.props.onclick({ stopPropagation() {}, currentTarget: {} });
+  assert.ok(s.calls.some((c) => c.url.endsWith("/notifications/threads/42") && c.init.method === "PATCH"));
+  assert.doesNotMatch(s.rendered(), /Ping/);
+  assert.match(s.rendered(), /No unread notifications/);
+});
+
+test("cards from other mods: added, shown, and a broken one can't break the preview", async () => {
+  const s = setup();
+  await sleep(5);
+  const api = s.peek();
+  assert.throws(() => api.registerCard({ type: "gmail", match: () => null, load() {}, render() {} }), /own cards/);
+  const remove = api.registerCard({
+    type: "todo",
+    name: "To-do",
+    match: (u) => (u.hostname === "todo.example" ? { type: "todo" } : null),
+    load: async () => ({ items: ["Buy milk"] }),
+    render: (d, ui) => [ui.header("To-do"), ...d.items.map((x) => ui.row({ primary: x }))],
+  });
+  s.hover().enter({ label: "Todo", url: "https://todo.example/" });
+  await sleep(250);
+  assert.match(s.rendered(), /To-do \| Buy milk/);
+  remove();
+  api.registerCard({ type: "broken", match: (u) => (u.hostname === "broken.example" ? { type: "broken" } : null), load: async () => ({}), render: () => { throw new Error("oops"); } });
+  s.hover().enter({ label: "Broken", url: "https://broken.example/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Couldn't load this preview/);
 });

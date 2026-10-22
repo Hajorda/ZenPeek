@@ -193,6 +193,29 @@
     ]
   },
   {
+    "property": "zen.peek.theme",
+    "type": "dropdown",
+    "label": "Colours",
+    "defaultValue": "zen",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Match Zen's theme (and theme mods)",
+        "value": "zen"
+      },
+      {
+        "label": "Zen Peek's own",
+        "value": "own"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.create-button",
+    "type": "checkbox",
+    "label": "Show a \"+\" button on Gmail and Calendar (new mail, new event)",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Unread badges on Essentials"
   },
@@ -318,6 +341,12 @@
     "defaultValue": true
   },
   {
+    "property": "zen.peek.card-weather",
+    "type": "checkbox",
+    "label": "Weather",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Gmail"
   },
@@ -326,6 +355,27 @@
     "type": "checkbox",
     "label": "Show the first lines of each mail",
     "defaultValue": false
+  },
+  {
+    "property": "zen.peek.gmail-pages",
+    "type": "dropdown",
+    "label": "Pages of mail (scroll sideways for the next page)",
+    "defaultValue": 3,
+    "placeholder": false,
+    "options": [
+      {
+        "label": "1 page",
+        "value": 1
+      },
+      {
+        "label": "2 pages",
+        "value": 2
+      },
+      {
+        "label": "3 pages",
+        "value": 3
+      }
+    ]
   },
   {
     "type": "separator",
@@ -341,6 +391,18 @@
     "property": "zen.peek.calendar-next",
     "type": "checkbox",
     "label": "Show the next event when today is done",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.calendar-timeline",
+    "type": "checkbox",
+    "label": "Show today as a timeline with the current time",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.calendar-colors",
+    "type": "checkbox",
+    "label": "A colour per calendar (when you add several)",
     "defaultValue": true
   },
   {
@@ -391,6 +453,34 @@
     "type": "checkbox",
     "label": "Unread notifications",
     "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Weather"
+  },
+  {
+    "property": "zen.peek.weather-location",
+    "type": "string",
+    "label": "Place (city name, e.g. Istanbul)",
+    "defaultValue": "",
+    "placeholder": "Istanbul"
+  },
+  {
+    "property": "zen.peek.weather-units",
+    "type": "dropdown",
+    "label": "Units",
+    "defaultValue": "metric",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "°C, km/h",
+        "value": "metric"
+      },
+      {
+        "label": "°F, mph",
+        "value": "imperial"
+      }
+    ]
   },
   {
     "type": "separator",

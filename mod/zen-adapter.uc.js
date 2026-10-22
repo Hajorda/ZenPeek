@@ -378,11 +378,13 @@ var ZPZen = (() => {
       panel?.classList.remove("zp-open");
     },
 
-    // Panel width and animation speed (applied on every show).
-    configure({ width, motion }) {
+    // Panel width, animation speed and colours (applied on every show).
+    // theme "zen" follows Zen's (and any theme's) panel colours; "own" uses Zen Peek's.
+    configure({ width, motion, theme = "zen" }) {
       const root = this.panelRoot();
       if (root) root.style.width = `${width}px`;
       panel?.setAttribute("zp-motion", motion);
+      panel?.setAttribute("zp-theme", theme);
     },
 
     removePanel() {
@@ -425,8 +427,10 @@ var ZPZen = (() => {
       }
     },
 
-    // Extra items on the tab right-click menu; `show(tab)` decides visibility and
-    // `label()` the text (read each time, so a language change applies at once).
+    // Extra items on the tab right-click menu. Each item has `show(tab)` and
+    // `label()` (read each time, so a language change applies at once), and
+    // either `command(tab)` or `submenu(tab)` → [{ label, checked, command }]
+    // (radio choices, rebuilt every time the menu opens).
     // Returns a function that removes them again. Items left by an older copy
     // (after an update without restart) are replaced, never duplicated.
     addTabMenuItems(items) {
@@ -435,13 +439,30 @@ var ZPZen = (() => {
       for (const old of menu.querySelectorAll("[id^='zen-peek-menu-']")) old.remove();
       const sep = document.createXULElement("menuseparator");
       sep.id = "zen-peek-menu-separator";
-      const els = items.map(({ id, command }) => {
+      const els = items.map(({ id, command, submenu }) => {
+        if (submenu) {
+          const m = document.createXULElement("menu");
+          m.id = `zen-peek-menu-${id}`;
+          m.append(document.createXULElement("menupopup"));
+          return m;
+        }
         const mi = document.createXULElement("menuitem");
         mi.id = `zen-peek-menu-${id}`;
         mi.addEventListener("command", () => command(TabContextMenu.contextTab));
         return mi;
       });
       menu.append(sep, ...els);
+      const fillSubmenu = (el, choices) => {
+        const popup = el.querySelector("menupopup");
+        popup.replaceChildren(...choices.map(({ label, checked, command }) => {
+          const mi = document.createXULElement("menuitem");
+          mi.setAttribute("type", "radio");
+          mi.setAttribute("label", label);
+          if (checked) mi.setAttribute("checked", "true");
+          mi.addEventListener("command", command);
+          return mi;
+        }));
+      };
       const onShowing = (e) => {
         if (e.target !== menu) return;
         const tab = TabContextMenu.contextTab;
@@ -449,7 +470,10 @@ var ZPZen = (() => {
         items.forEach((it, i) => {
           const visible = !!tab && it.show(tab);
           els[i].hidden = !visible;
-          if (visible) els[i].setAttribute("label", it.label());
+          if (visible) {
+            els[i].setAttribute("label", it.label());
+            if (it.submenu) fillSubmenu(els[i], it.submenu(tab));
+          }
           any ||= visible;
         });
         sep.hidden = !any;
@@ -460,6 +484,16 @@ var ZPZen = (() => {
         sep.remove();
         for (const el of els) el.remove();
       };
+    },
+
+    // Calls fn() when the user presses the mouse outside the open preview
+    // (used to close a pinned preview). Returns a function that stops it.
+    onClickOutside(fn) {
+      const down = (e) => {
+        if (panel?.classList.contains("zp-open") && !panel.contains(e.target)) fn(e.target);
+      };
+      window.addEventListener("mousedown", down, true);
+      return () => window.removeEventListener("mousedown", down, true);
     },
   };
 })();

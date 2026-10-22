@@ -11,7 +11,7 @@ var ZPCore = (() => {
    * @typedef {{ subject: string, snippet: string, from: string, date: Date, url: string }} Mail
    * @typedef {{ unread: number, mails: Mail[] }} GmailData
    * @typedef {{ url: string, provider: string }} Meeting
-   * @typedef {{ summary: string, start: Date, end: Date, allDay: boolean, location: string, url: string, meeting: Meeting | null }} CalendarEvent
+   * @typedef {{ summary: string, start: Date, end: Date, allDay: boolean, location: string, url: string, meeting: Meeting | null, calendar: string, calIndex: number }} CalendarEvent
    * @typedef {{ title: string, repo: string, number?: number, url: string, draft?: boolean, date: Date, status?: string, ci?: string }} GithubItem
    * @typedef {{ count: number | null, dot: boolean, more?: boolean }} TitleBadge
    * @typedef {object} RawEvent  An iCalendar VEVENT while it's being read.
@@ -21,6 +21,7 @@ var ZPCore = (() => {
    * @property {Record<string, string>} [rrule] @property {string} [duration]
    * @property {any} [_start] @property {any} [_end] @property {any} [_rid]
    * @property {Date} [start] @property {Date} [end] @property {boolean} [allDay] @property {Date} [recurrenceId] @property {Date} [until]
+   * @property {string} [calendar] @property {number} [calIndex]
    */
 
   /** Hostname without "www.", or "" for something that isn't a URL. */
@@ -150,6 +151,7 @@ var ZPCore = (() => {
     const lines = String(text).replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "").split(/\r?\n/);
     if (!lines.some((l) => l.startsWith("BEGIN:VCALENDAR"))) throw new Error("not an iCalendar file");
     let calTz = "";
+    let calName = "";
     /** @type {RawEvent[]} */
     const events = [];
     /** @type {RawEvent | null} */
@@ -171,6 +173,7 @@ var ZPCore = (() => {
       const value = line.slice(i + 1);
       if (!ev) {
         if (name === "X-WR-TIMEZONE") calTz = validTz(value) ? value : "";
+        if (name === "X-WR-CALNAME") calName = value.replace(/\\([,;\\])/g, "$1").trim();
         continue;
       }
       const text = () => value.replace(/\\n/gi, " ").replace(/\\([,;\\])/g, "$1").trim();
@@ -204,6 +207,7 @@ var ZPCore = (() => {
       delete e._start;
       delete e._end;
       delete e._rid;
+      e.calendar = calName;
     }
     return events.filter((e) => e.start instanceof Date && !isNaN(e.start.getTime()));
   }
@@ -377,6 +381,7 @@ var ZPCore = (() => {
       .map((e) => ({
         summary: e.summary || "", start: e.start, end: e.end, allDay: !!e.allDay,
         location: e.location || "", url: e.url || "", meeting: meetingLink(e),
+        calendar: e.calendar || "", calIndex: e.calIndex || 0,
       }))
       .sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || a.start - b.start);
   }
@@ -392,7 +397,7 @@ var ZPCore = (() => {
       const m = api.match(/\/repos\/([^/]+\/[^/]+)\/(pulls|issues|commits|releases)\/([^/]+)$/);
       const kind = { pulls: "pull", issues: "issues", commits: "commit", releases: "releases" }[m?.[2]];
       const url = m ? `https://github.com/${m[1]}/${kind === "releases" ? "releases" : kind}/${m[3]}` : `https://github.com/${repo}`;
-      return { title: n.subject?.title || "", repo, type: n.subject?.type || "", reason: n.reason || "", date: new Date(n.updated_at), url };
+      return { id: String(n.id ?? ""), title: n.subject?.title || "", repo, type: n.subject?.type || "", reason: n.reason || "", date: new Date(n.updated_at), url };
     });
   }
 
@@ -499,6 +504,66 @@ var ZPCore = (() => {
     return mode === "always" || +e.start - +now <= 10 * 60_000;
   }
 
+  // The hours a day timeline should show: 8:00–20:00, widened to fit the
+  // day's timed events and the current time, on whole hours.
+  function timelineRange(events, day = new Date(), now = new Date()) {
+    const at = (h) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h).getTime();
+    const dayStart = at(0), dayEnd = at(24);
+    let from = at(8), to = at(20);
+    const times = events.filter((e) => !e.allDay).flatMap((e) => [+e.start, +e.end]);
+    if (+now >= dayStart && +now < dayEnd) times.push(+now);
+    for (const t of times) {
+      from = Math.max(dayStart, Math.min(from, t));
+      to = Math.min(dayEnd, Math.max(to, t));
+    }
+    const hour = 3600_000;
+    return { from: dayStart + Math.floor((from - dayStart) / hour) * hour, to: dayStart + Math.ceil((to - dayStart) / hour) * hour };
+  }
+
+  // --- Weather (Open-Meteo) -----------------------------------------------------------
+
+  // WMO weather codes → a condition key (texts live in strings.uc.js) and an icon.
+  function weatherKind(code, isDay = true) {
+    const c = Number(code);
+    if (c === 0) return { key: "clear", icon: isDay ? "☀️" : "🌙" };
+    if (c <= 2) return { key: "partly", icon: isDay ? "⛅" : "☁️" };
+    if (c === 3) return { key: "cloudy", icon: "☁️" };
+    if (c === 45 || c === 48) return { key: "fog", icon: "🌫️" };
+    if (c >= 51 && c <= 57) return { key: "drizzle", icon: "🌦️" };
+    if ((c >= 61 && c <= 67) || (c >= 80 && c <= 82)) return { key: "rain", icon: "🌧️" };
+    if ((c >= 71 && c <= 77) || c === 85 || c === 86) return { key: "snow", icon: "🌨️" };
+    if (c >= 95) return { key: "thunder", icon: "⛈️" };
+    return { key: "cloudy", icon: "☁️" };
+  }
+
+  // Open-Meteo forecast → now, today's high/low and the next `hours` hours.
+  // Its times are local to the place ("2026-10-22T14:00"), with utc_offset_seconds.
+  function parseWeather(json, { now = new Date(), hours = 6 } = {}) {
+    if (!json?.current || !json?.hourly?.time) throw new Error("unexpected weather response");
+    const offset = Number(json.utc_offset_seconds) || 0;
+    const local = (t) => new Date(Date.parse(`${t}Z`) - offset * 1000);
+    const current = json.current;
+    const isDay = current.is_day !== 0;
+    const next = [];
+    const h = json.hourly;
+    for (let i = 0; i < h.time.length && next.length < hours; i++) {
+      const time = local(h.time[i]);
+      if (+time + 3600_000 <= +now) continue;
+      next.push({ time, temp: Math.round(h.temperature_2m[i]), code: h.weather_code[i], pop: h.precipitation_probability?.[i] ?? null });
+    }
+    return {
+      current: {
+        temp: Math.round(current.temperature_2m),
+        feels: Math.round(current.apparent_temperature),
+        code: current.weather_code,
+        wind: Math.round(current.wind_speed_10m),
+        isDay,
+      },
+      today: { max: Math.round(json.daily?.temperature_2m_max?.[0]), min: Math.round(json.daily?.temperature_2m_min?.[0]) },
+      hours: next,
+    };
+  }
+
   // --- Pointer intent ---------------------------------------------------------------------
 
   const area = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
@@ -590,6 +655,7 @@ var ZPCore = (() => {
     hostOf, decode, parseGmailAtom, parseGmailAtomDom, parseGmailAtomText, parseICS, occurrences, eventsOnDay, meetingLink,
     zoned, tzOffset, parseGithubNotifications, parseGithubSearch, parseGithubGraphql, parseHnItem,
     parseTitleBadge, badgeText, relTime, clock, eventStatus, joinable, inTriangle, headingToward,
+    timelineRange, weatherKind, parseWeather,
     Cache, toStorable, fromStorable,
   };
 })();

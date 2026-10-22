@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+**New**
+- **"+" button** (like Arc's) on Gmail (new mail) and Calendar (new event).
+- **Gmail pages:** up to 3 pages of mail, side by side; scroll, swipe or use the dots.
+- **Calendar:** today as a timeline with a red line for now, and a colour per calendar (with its name).
+- **GitHub:** ✓ marks a notification as read; it leaves the card and the badge at once.
+- **Weather card** (Open-Meteo) for weather sites, or any Essential.
+- **Show as:** right-click an Essential to choose its card (or just the page).
+- **Pin** a preview open; **Show more** for more items; resize the card from its corner.
+- **Setup inside the card** instead of a dialog box, with validation and a link to where to get the value.
+- **Better errors:** "Sign in" for Gmail, "Try again", or the right setup button.
+- **Cards from other mods:** `ZenPeek.registerCard(...)` (see the README).
+- **Themes:** the card uses Zen's panel colours, so it matches Zen and theme mods (or choose Zen Peek's own colours).
+
 ## 0.3.2
 
 **Changed**

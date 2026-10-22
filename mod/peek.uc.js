@@ -50,6 +50,15 @@
     }
   };
 
+  const readChoices = () => {
+    try {
+      const v = JSON.parse(str("card-choices", "{}"));
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  };
+
   // Every setting has its default here (Sine doesn't apply preference defaults).
   const readSettings = () => ({
     // General
@@ -68,13 +77,24 @@
     cards: Object.fromEntries(Cards.types().map((type) => [type, bool(`card-${type}`, true)])),
     // Card options
     gmailSnippets: bool("gmail-snippets", false),
+    gmailPages: Math.min(3, Math.max(1, num("gmail-pages", 3))),
     calendarPast: bool("calendar-past", true),
     calendarNext: bool("calendar-next", true),
     calendarJoin: oneOf("calendar-join", ["soon", "always", "off"], "soon"),
+    calendarTimeline: bool("calendar-timeline", true),
+    calendarColours: bool("calendar-colors", true),
     githubReviews: bool("github-reviews", true),
     githubMine: bool("github-mine", true),
     githubNotifications: bool("github-notifications", true),
     githubCi: bool("github-ci", true),
+    // Weather
+    weatherLocation: str("weather-location", "").trim(),
+    weatherUnits: oneOf("weather-units", ["metric", "imperial"], "metric"),
+    // Look
+    theme: oneOf("theme", ["zen", "own"], "zen"),
+    createButton: bool("create-button", true),
+    // "Show as" choices per Essential: { "https://site/path": "weather" | "page" | … }
+    choices: readChoices(),
     // Badges
     badges: oneOf("badges", ["dot", "count", "off"], "dot"),
     badgesTitle: bool("badges-title", true),
@@ -139,9 +159,9 @@
     if (settings().debug) console.log("[Zen Peek] debug:", event, data);
   }
   function diagnostics() {
-    const { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language } = settings();
+    const { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language, theme } = settings();
     return JSON.parse(JSON.stringify({
-      settings: { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language },
+      settings: { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language, theme },
       language: Strings.locale,
       panel: { style: Zen.panelStyle ?? null, open: Zen.panelOpen() },
       lastPlacement: Zen.lastPlacement ?? null,
@@ -183,18 +203,29 @@
     later(backgroundTick, 500);
   }
 
-  async function askCalendar() {
-    const input = { value: "" };
-    if (!Services.prompt.prompt(window, "Zen Peek", t("prompt.calendar"), input, null, {})) return;
-    const urls = input.value.split(/\s+/).filter((u) => /^https:\/\//.test(u));
-    await setSecret("calendar", urls.join(" "));
+  // A card's setup value (calendar address, GitHub token, weather place):
+  // secrets go to the password manager, the rest to a zen.peek.* preference.
+  async function saveSetup(setup, value) {
+    if (setup.kind === "secret") return setSecret(setup.name, value);
+    Services.prefs.setStringPref(P + setup.name, value);
+    settingsCache = null;
+    failures.clear();
   }
 
-  async function askGithub() {
+  // The plain dialog, used when the preview can't open (e.g. the Essential is hidden).
+  async function promptSetup(def) {
+    const st = def.setup;
     const input = { value: "" };
-    if (Services.prompt.promptPassword(window, "Zen Peek", t("prompt.github"), input)) await setSecret("github", input.value.trim());
+    const text = st.form === "calendar" ? t("prompt.calendar") : st.form === "github" ? t("prompt.github") : t(`setup.${st.form}.help`);
+    const ok = st.input === "password"
+      ? Services.prompt.promptPassword(window, "Zen Peek", text, input)
+      : Services.prompt.prompt(window, "Zen Peek", text, input, null, {});
+    if (!ok) return;
+    const value = st.validate(input.value);
+    if (value) await saveSetup(st, value);
   }
-  const ASK = { calendar: askCalendar, github: askGithub };
+  const askCalendar = () => promptSetup(Cards.get("calendar"));
+  const askGithub = () => promptSetup(Cards.get("github"));
 
   // --- Loading card data ---------------------------------------------------
 
@@ -278,8 +309,31 @@
 
   // The card to show for a tab, or null (no card for this site, or turned off).
   function cardForTab(tab, s) {
-    const card = Cards.match(Zen.tabUrl(tab));
-    return card && Cards.get(card.type).enabled(s) ? card : null;
+    const card = Cards.cardFor(Zen.tabUrl(tab), s.choices[choiceKey(tab)]);
+    const def = card && Cards.get(card.type);
+    return def && Cards.guarded(() => def.enabled(s), false) ? card : null;
+  }
+
+  // "Show as": which card an Essential uses, saved per address (without ?query or #hash).
+  const choiceKey = (tab) => {
+    try {
+      const u = new URL(Zen.tabUrl(tab));
+      return u.origin + u.pathname;
+    } catch {
+      return "";
+    }
+  };
+  function setChoice(tab, choice) {
+    const key = choiceKey(tab);
+    if (!key) return;
+    const choices = { ...settings().choices };
+    if (choice === "auto") delete choices[key];
+    else choices[key] = choice;
+    Services.prefs.setStringPref(`${P}card-choices`, JSON.stringify(choices));
+    settingsCache = null;
+    snapshots.delete(tab);
+    scheduleBadges();
+    later(backgroundTick, 300);
   }
 
   // --- Shared between windows ---------------------------------------------------
@@ -380,17 +434,40 @@
 
   const h = (...a) => Zen.html(...a);
 
-  // The helpers every card draws with (see cards.uc.js).
-  function makeUi(tab, s) {
+  const reducedMotion = () => {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      return false;
+    }
+  };
+
+  // The helpers every card draws with (see cards.uc.js and the README).
+  // `card` is set when drawing a card's data, so ui.update() can store new data.
+  function makeUi(tab, s, card = null) {
     const locale = Strings.locale;
     const open = (url, e, newTab = false) => {
       hide("clicked");
       Zen.openLink(url, tab, { newTab: newTab || s.newTab || !!(e && (e.button === 1 || e.ctrlKey || e.metaKey)) });
     };
-    return {
+    const ui = {
       s, t, locale, now: new Date(),
       relTime: (d) => Core.relTime(d, new Date(), locale),
       clock: (d) => Core.clock(d, locale),
+      // Any element, text only (nothing is ever parsed as HTML).
+      el: (tag, props = {}, children = []) => h(tag, props, children),
+      fetch: (url, init) => fetch(url, init),
+      secret: getSecret,
+      // Replace this card's data (after an action like "mark as read") and redraw.
+      update(data) {
+        if (!card) return;
+        const key = Cards.keyOf(card, s);
+        cache.set(key, data);
+        share(key);
+        scheduleSave();
+        scheduleBadges();
+        if (shownFor === tab) fill(Cards.get(card.type).render(data, makeUi(tab, s, card)));
+      },
       header(title, badge = "") {
         Zen.setPanelLabel?.(t("a11y.preview", { name: title }));
         const icon = Zen.tabIcon(tab);
@@ -398,10 +475,22 @@
           icon ? h("img", { class: "zp-icon", src: icon, alt: "" }) : null,
           h("span", { class: "zp-title", text: title }),
           badge ? h("span", { class: "zp-badge", text: badge }) : null,
+          h("button", {
+            class: "zp-pin", "aria-pressed": String(pinned), title: t(pinned ? "unpin" : "pin"), "aria-label": t(pinned ? "unpin" : "pin"),
+            onclick: (e) => {
+              pinned = !pinned;
+              const b = e.currentTarget;
+              b.setAttribute("aria-pressed", String(pinned));
+              b.setAttribute("title", t(pinned ? "unpin" : "pin"));
+              b.setAttribute("aria-label", t(pinned ? "unpin" : "pin"));
+              note(pinned ? "pinned" : "unpinned");
+            },
+          }),
         ]);
       },
-      row({ primary, secondary = "", extra = "", meta = "", url = "", dim = false, accent = false, label = "", action = null }) {
-        const props = { class: `zp-row${dim ? " zp-dim" : ""}${url ? " zp-link" : ""}` };
+      row({ primary, secondary = "", extra = "", meta = "", url = "", dim = false, accent = false, label = "", action = null, colour = "" }) {
+        const props = { class: `zp-row${dim ? " zp-dim" : ""}${url ? " zp-link" : ""}${colour ? " zp-has-colour" : ""}` };
+        if (colour) props.style = `--zp-cal:${colour}`;
         if (url) {
           const activate = (e) => open(url, e);
           Object.assign(props, {
@@ -410,7 +499,7 @@
             onclick: activate,
             onauxclick: (e) => e.button === 1 && activate(e),
             onkeydown: (e) => {
-              if (e.key === "Enter" || e.key === " ") {
+              if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
                 e.preventDefault();
                 activate(e);
               }
@@ -420,10 +509,19 @@
         if (label) props["aria-label"] = label;
         const actionEl = action
           ? h("button", {
-            class: "zp-action", text: action.text, title: action.label, "aria-label": action.label,
-            onclick: (e) => {
+            class: `zp-action${action.quiet ? " zp-action-quiet" : ""}`, text: action.text, title: action.label, "aria-label": action.label,
+            onclick: async (e) => {
               e.stopPropagation();
-              open(action.url, e, action.newTab);
+              if (!action.run) return open(action.url, e, action.newTab);
+              const b = e.currentTarget;
+              b.disabled = true;
+              try {
+                await action.run();
+              } catch (err) {
+                b.disabled = false;
+                b.setAttribute("title", t("error.unknown"));
+                note("action-failed", { code: err?.code || "unknown" });
+              }
             },
           })
           : null;
@@ -440,24 +538,65 @@
       empty: (text) => h("div", { class: "zp-empty", text }),
       subhead: (text) => h("div", { class: "zp-subhead", role: "heading", "aria-level": "2", text }),
       button: (text, onclick) => h("button", { class: "zp-button", text, onclick }),
+      // Extra rows behind a "Show N more" button.
+      more(nodes) {
+        if (!nodes.length) return [];
+        const box = h("div", { class: "zp-more-items", hidden: "hidden" }, nodes);
+        const button = h("button", {
+          class: "zp-more", text: t("more", { n: nodes.length }),
+          onclick: () => {
+            box.hidden = false;
+            button.remove();
+            Zen.reposition?.();
+            if (keyboard) box.querySelector?.("[tabindex='0']")?.focus();
+          },
+        });
+        return [box, button];
+      },
+      // Pages of rows side by side: swipe, scroll the wheel, or use the dots.
+      pages(list) {
+        const label = (i) => t("page-of", { n: i + 1, total: list.length });
+        const at = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+        const go = (i) => track.scrollTo({ left: Math.max(0, Math.min(list.length - 1, i)) * track.clientWidth, behavior: reducedMotion() ? "auto" : "smooth" });
+        let wheelUntil = 0;
+        const track = h("div", {
+          class: "zp-pages",
+          onscroll: () => dots.forEach((d, j) => d.setAttribute("aria-current", String(j === at()))),
+          // A vertical wheel turns the page (one page per gesture).
+          onwheel: (e) => {
+            if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+            e.preventDefault();
+            if (Date.now() < wheelUntil) return;
+            wheelUntil = Date.now() + 400;
+            go(at() + Math.sign(e.deltaY));
+          },
+        }, list.map((nodes, i) => h("div", { class: "zp-page", role: "group", "aria-label": label(i) }, nodes)));
+        const dots = list.map((_, i) => h("button", { class: "zp-dot", "aria-label": label(i), "aria-current": String(i === 0), onclick: () => go(i) }));
+        return h("div", { class: "zp-paged" }, [track, h("div", { class: "zp-dots" }, dots)]);
+      },
     };
+    return ui;
   }
 
-  const KNOWN_ERRORS = new Set(["signed-out", "auth", "network", "timeout", "server"]);
+  const KNOWN_ERRORS = new Set(["signed-out", "auth", "not-found", "network", "timeout", "server"]);
 
+  // An error card that says what happened and offers the fix: set up, sign in, or try again.
   function renderError(tab, card, err, s) {
     const ui = makeUi(tab, s);
     const def = Cards.get(card.type);
     let message;
-    if (err.code === "setup" && def.setup) message = t(`error.setup.${def.setup.secret}`);
+    if (err.code === "setup" && def.setup) message = def.external ? err.message : t(`error.setup.${def.setup.form}`);
     else if (err.code === "rate-limited") message = t("error.rate-limited", { time: ui.clock(new Date(err.retryAt || Date.now() + 60_000)) });
     else if (err.code === "parse" && card.type === "calendar") message = t("error.parse");
-    else message = KNOWN_ERRORS.has(err.code) ? t(`error.${err.code}`) : t("error.unknown");
+    else message = KNOWN_ERRORS.has(err.code) ? t(`error.${err.code}`) : (def.external && err.message) || t("error.unknown");
     const out = [ui.header(Zen.tabTitle(tab)), ui.empty(message)];
-    if (def.setup && ["setup", "auth", "parse"].includes(err.code)) {
-      out.push(ui.button(t(def.setup.button), () => {
-        hide("setup");
-        ASK[def.setup.secret]?.();
+    if (def.setup && ["setup", "auth", "parse", "not-found"].includes(err.code)) {
+      out.push(ui.button(t(def.setup.button), () => openSetup(tab, def)));
+    } else if (err.code === "signed-out" && card.type === "gmail") {
+      const mail = `https://mail.google.com/mail/u/${card.account ?? 0}/`;
+      out.push(ui.button(t("button.sign-in"), () => {
+        hide("sign-in");
+        Zen.openLink(`https://accounts.google.com/ServiceLogin?service=mail&continue=${encodeURIComponent(mail)}`, tab, { newTab: true });
       }));
     } else if (["network", "timeout", "server"].includes(err.code)) {
       out.push(ui.button(t("button.retry"), () => {
@@ -466,6 +605,63 @@
       }));
     }
     return out;
+  }
+
+  // Setup inside the preview: a small form instead of a dialog box. The preview
+  // stays open (pinned) while you type; Enter saves, Esc cancels.
+  function openSetup(tab, def) {
+    const s = settings();
+    const st = def.setup;
+    ensurePanel(s);
+    token++;
+    shownFor = tab;
+    pinned = true;
+    const ui = makeUi(tab, s);
+    const input = h("input", {
+      class: "zp-input", type: st.input, placeholder: t(`setup.${st.form}.placeholder`),
+      "aria-label": t(`setup.${st.form}.title`), spellcheck: "false", autocomplete: "off",
+    });
+    if (st.kind === "pref") input.value = str(st.name, "");
+    const error = h("div", { class: "zp-form-error", role: "alert" });
+    const save = async () => {
+      const value = st.validate(input.value || "");
+      if (!value) {
+        error.textContent = t(`setup.${st.form}.invalid`);
+        input.focus?.();
+        return;
+      }
+      await saveSetup(st, value);
+      pinned = false;
+      note("setup-saved", { card: def.type });
+      show(tab);
+    };
+    input.addEventListener?.("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        save();
+      }
+    });
+    const link = st.link && t(`setup.${st.form}.link`);
+    fill([
+      ui.header(t(`setup.${st.form}.title`)),
+      h("div", { class: "zp-form" }, [
+        h("p", { class: "zp-form-help", text: t(`setup.${st.form}.help`) }),
+        input,
+        error,
+        h("div", { class: "zp-form-buttons" }, [
+          h("button", { class: "zp-button zp-primary-button", text: t("setup.save"), onclick: save }),
+          h("button", { class: "zp-button", text: t("setup.cancel"), onclick: () => hide("setup-cancelled") }),
+        ]),
+        link ? h("button", { class: "zp-form-link", text: `${link} ↗`, onclick: () => Zen.openLink(st.link, tab, { newTab: true }) }) : null,
+        st.kind === "secret" ? h("p", { class: "zp-form-note", text: t("setup.stored") }) : null,
+      ]),
+    ]);
+    if (!openAt(tab, s)) {
+      pinned = false;
+      promptSetup(def);
+      return;
+    }
+    input.focus?.();
   }
 
   // Snapshots of open tabs are reused for a few seconds (taking one is the
@@ -506,6 +702,7 @@
   let shownFor = null;
   let token = 0;
   let keyboard = null; // { restore: element } while the preview was opened from the keyboard
+  let pinned = false; // the pin button: stays open until unpinned, Esc, or a click elsewhere
   let point = null; // last pointer position
   let movedAt = 0; // when the pointer last moved
   let leftAt = null; // where the pointer was when it left the Essential
@@ -527,7 +724,7 @@
       onFocusOut: () => later(() => keyboard && Zen.panelOpen() && !Zen.panelHasFocus() && hide("focus-left"), 0),
       style: s.style,
     });
-    Zen.configure?.({ width: s.width, motion: s.motion });
+    Zen.configure?.({ width: s.width, motion: s.motion, theme: s.theme });
   };
 
   // Open the panel at `tab`. False if it couldn't (the Essential isn't visible).
@@ -572,7 +769,7 @@
     cache.ttl = s.refreshMs;
     const cached = cache.peek(key);
     const usable = cached && (cached.fresh || cached.age < MAX_STALE_MS) ? cached : null;
-    fill(usable ? def.render(usable.value, makeUi(tab, s)) : loading());
+    fill(usable ? renderCard(def, usable.value, tab, s, card) : loading());
     if (!openAt(tab, s)) return;
     if (fromKeyboard) focusIn();
     note("show", { card: card.type, data: usable ? (usable.fresh ? "fresh" : "stale") : "loading" });
@@ -580,7 +777,7 @@
     try {
       const data = await load(card, s);
       if (current()) {
-        fill(def.render(data, makeUi(tab, s)));
+        fill(renderCard(def, data, tab, s, card));
         if (fromKeyboard) focusIn();
       }
     } catch (e) {
@@ -593,6 +790,25 @@
         if (fromKeyboard) focusIn();
       }
     }
+  }
+
+  // A card's drawing, protected: a failing card shows an error instead of breaking the preview.
+  function renderCard(def, data, tab, s, card) {
+    const ui = makeUi(tab, s, card);
+    const nodes = Cards.guarded(() => def.render(data, ui), null) || [ui.header(Zen.tabTitle(tab)), ui.empty(t("error.unknown"))];
+    // The "+" button (new mail, new event…), floating in the corner like Arc's.
+    const create = s.createButton && def.create && Cards.guarded(() => def.create(card), null);
+    if (create?.url) {
+      const label = def.external ? create.label : t(create.label);
+      nodes.push(h("div", { class: "zp-fab-wrap" }, [h("button", {
+        class: "zp-fab", title: label, "aria-label": label,
+        onclick: (e) => {
+          hide("create");
+          Zen.openLink(create.url, tab, { newTab: !!(e.button === 1 || e.ctrlKey || e.metaKey) });
+        },
+      })]));
+    }
+    return nodes;
   }
 
   // Start fetching a card's data before its panel opens.
@@ -610,6 +826,7 @@
   function hide(reason = "left") {
     token++;
     shownFor = null;
+    pinned = false;
     clearTimeout(prefetchTimer);
     clearTimeout(hideTimer);
     const restore = keyboard?.restore;
@@ -636,7 +853,7 @@
   // pointer moves toward the preview. "pause": close after 0.4 s.
   function scheduleHide() {
     clearTimeout(hideTimer);
-    if (keyboard) return; // opened from the keyboard: closes with Esc, the shortcut, or when focus leaves
+    if (keyboard || pinned) return; // closes with Esc, the shortcut, a click elsewhere, or when focus leaves
     if (settings().close !== "smart" || !Zen.panelRect) {
       hideTimer = later(() => hide("left"), 400);
       return;
@@ -659,6 +876,7 @@
   const onPanelLeave = () => scheduleHide();
 
   function onEnterEssential(tab) {
+    if (pinned) return; // a pinned preview stays on its Essential
     cancelHide();
     clearTimeout(showTimer);
     clearTimeout(prefetchTimer);
@@ -730,6 +948,7 @@
       return;
     }
     if (!Zen.panelHasFocus?.()) return;
+    if (e.target?.localName === "input") return; // typing in a setup form
     const items = Zen.panelFocusables?.() || [];
     const at = items.indexOf(document.activeElement);
     let handled = true;
@@ -769,7 +988,7 @@
     let dot = false;
     if (def?.count) {
       const hit = cache.peek(Cards.keyOf(card, s));
-      if (hit && hit.age < MAX_STALE_MS) count = def.count(hit.value, s);
+      if (hit && hit.age < MAX_STALE_MS) count = Cards.guarded(() => def.count(hit.value, s), null);
     }
     if (def?.titleCounts && live?.count != null) count = live.count;
     if (count === null && s.badgesTitle && live) {
@@ -853,7 +1072,30 @@
   }
 
   // For the Browser Console and tests.
-  window.ZenPeek = { show, hide, askCalendar, askGithub, load, cache, dispose, diagnostics, refresh: backgroundTick, updateBadges, flush: save };
+  // For other mods: add a card. See "Cards from other mods" in the README.
+  // Returns a function that removes it again.
+  function registerCard(def) {
+    if (!def || typeof def !== "object") throw new TypeError("ZenPeek.registerCard needs a card definition");
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(def.type || "")) throw new Error('A card "type" is 2–31 lowercase letters, digits or "-"');
+    if (Cards.builtIn(def.type)) throw new Error(`"${def.type}" is one of Zen Peek's own cards`);
+    if (def.setup && (def.setup.kind !== "pref" || typeof def.setup.validate !== "function")) {
+      throw new Error('A card from another mod can only use setup.kind "pref", with a validate() function');
+    }
+    Cards.register({ ...def, external: true });
+    settingsCache = null;
+    scheduleBadges();
+    note("card-added", { card: def.type });
+    return () => {
+      Cards.unregister(def.type);
+      settingsCache = null;
+      scheduleBadges();
+    };
+  }
+
+  window.ZenPeek = {
+    apiVersion: 1, registerCard,
+    show, hide, askCalendar, askGithub, load, cache, dispose, diagnostics, refresh: backgroundTick, updateBadges, flush: save,
+  };
 
   Zen.whenReady().then(() => {
     settings();
@@ -864,9 +1106,31 @@
       leave: onLeaveEssential,
     }));
     cleanups.push(Zen.addTabMenuItems([
-      { id: "calendar", label: () => t("menu.set-calendar"), command: askCalendar, show: (tab) => Cards.match(Zen.tabUrl(tab))?.type === "calendar" },
-      { id: "github", label: () => t("menu.set-github"), command: askGithub, show: (tab) => Cards.match(Zen.tabUrl(tab))?.type === "github" },
+      {
+        id: "show-as",
+        label: () => t("menu.show-as"),
+        show: (tab) => Zen.essentials(settings().pinned).includes(tab),
+        submenu: (tab) => {
+          const chosen = settings().choices[choiceKey(tab)] || "auto";
+          const option = (value, label) => ({ label, checked: chosen === value, command: () => setChoice(tab, value) });
+          return [
+            option("auto", t("card.auto")),
+            option("page", t("card.page")),
+            ...Cards.types().map((type) => option(type, Cards.get(type).name || t(`card.${type}`))),
+          ];
+        },
+      },
+      // "Set calendar address…", "Set GitHub token…", "Set weather location…" on the Essentials that use them.
+      ...Cards.types().filter((type) => Cards.get(type).setup && Cards.builtIn(type)).map((type) => ({
+        id: `setup-${type}`,
+        label: () => t(Cards.get(type).setup.menu),
+        show: (tab) => cardForTab(tab, settings())?.type === type,
+        command: (tab) => openSetup(tab, Cards.get(type)),
+      })),
     ]));
+    cleanups.push(Zen.onClickOutside((target) => {
+      if (pinned && !target?.closest?.("tab")) hide("outside");
+    }));
     cleanups.push(Zen.watchTabs((tab) => {
       if (tab) snapshots.delete(tab);
       scheduleBadges();
@@ -884,6 +1148,9 @@
     cleanups.push(() => clearInterval(interval));
     window.addEventListener("unload", dispose, { once: true });
     restore().finally(() => later(() => idle(backgroundTick), 3000));
+    try {
+      window.dispatchEvent(new CustomEvent("ZenPeekReady", { detail: window.ZenPeek }));
+    } catch { /* tests */ }
     console.log("[Zen Peek] ready");
   }).catch((e) => console.error("Zen Peek failed to start", e));
 })();

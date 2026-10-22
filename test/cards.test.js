@@ -34,7 +34,7 @@ test("badge counts come from the card's data", () => {
 });
 
 test("a card without the required parts is refused", () => {
-  assert.throws(() => Cards.register({ type: "x", match: () => null }), /missing "enabled"/);
+  assert.throws(() => Cards.register({ type: "x", match: () => null }), /missing "load"/);
 });
 
 test("every language has every text, with the same placeholders", () => {

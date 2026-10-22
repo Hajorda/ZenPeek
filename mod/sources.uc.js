@@ -7,7 +7,7 @@ var ZPSources = (() => {
   "use strict";
   const Core = ZPCore;
 
-  // Codes: setup | signed-out | auth | network | timeout | rate-limited | server | parse | aborted.
+  // Codes: setup | signed-out | auth | not-found | network | timeout | rate-limited | server | parse | aborted.
   // "rate-limited" errors also carry `retryAt` (ms since epoch).
   class SourceError extends Error {
     constructor(code, message, extra = {}) {
@@ -103,13 +103,18 @@ var ZPSources = (() => {
     if (!icsUrls.length) throw new SourceError("setup", "Add your calendar's secret iCal address in Zen Peek's settings");
     const texts = await Promise.all(icsUrls.map((url) => request(fetchFn, url, { signal, timeoutMs })));
     const all = [];
-    for (const text of texts) {
+    const calendars = [];
+    texts.forEach((text, i) => {
+      let events;
       try {
-        all.push(...Core.parseICS(text));
+        events = Core.parseICS(text);
       } catch {
         throw new SourceError("parse", "That address didn't return a calendar");
       }
-    }
+      for (const e of events) e.calIndex = i; // its colour
+      calendars.push({ name: events[0]?.calendar || "", index: i });
+      all.push(...events);
+    });
     const today = Core.eventsOnDay(all, now).slice(0, limit); // past ones are shown dimmed
     let next = null;
     if (!today.some((e) => !e.allDay && e.end > now)) {
@@ -118,7 +123,7 @@ var ZPSources = (() => {
         next = Core.eventsOnDay(all, day).find((e) => !e.allDay) || null;
       }
     }
-    return { events: today, next };
+    return { events: today, next, calendars };
   }
 
   // GitHub pull requests in one GraphQL request: review requests, and my open
@@ -198,6 +203,44 @@ var ZPSources = (() => {
     };
   }
 
+  // Marks one GitHub notification thread as read.
+  async function githubMarkRead({ fetchFn, token, id, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+    if (!token || !id) throw new SourceError("setup", "No GitHub token");
+    const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+    await request(fetchFn, `https://api.github.com/notifications/threads/${encodeURIComponent(id)}`, { init: { method: "PATCH", headers }, timeoutMs });
+  }
+
+  // Weather from Open-Meteo (free, no key). `place` is a city name; its
+  // coordinates are looked up once and kept in `geoCache`.
+  async function weather({ fetchFn, place, units = "metric", signal = undefined, timeoutMs = DEFAULT_TIMEOUT_MS, geoCache = new Map(), language = "en" }) {
+    const name = String(place || "").trim();
+    if (!name) throw new SourceError("setup", "Choose a place for the weather");
+    let geo = geoCache.get(name.toLowerCase());
+    if (!geo) {
+      const q = new URLSearchParams({ name, count: "1", language, format: "json" });
+      const found = await request(fetchFn, `https://geocoding-api.open-meteo.com/v1/search?${q}`, { signal, timeoutMs, as: "json" });
+      const r = found?.results?.[0];
+      if (!r) throw new SourceError("not-found", `No place called "${name}"`);
+      geo = { lat: r.latitude, lon: r.longitude, name: r.name, country: r.country_code || "" };
+      geoCache.set(name.toLowerCase(), geo);
+    }
+    const imperial = units === "imperial";
+    const q = new URLSearchParams({
+      latitude: String(geo.lat), longitude: String(geo.lon), timezone: "auto", forecast_days: "2",
+      current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day",
+      hourly: "temperature_2m,weather_code,precipitation_probability",
+      daily: "temperature_2m_max,temperature_2m_min",
+      temperature_unit: imperial ? "fahrenheit" : "celsius",
+      wind_speed_unit: imperial ? "mph" : "kmh",
+    });
+    const json = await request(fetchFn, `https://api.open-meteo.com/v1/forecast?${q}`, { signal, timeoutMs, as: "json" });
+    try {
+      return { place: geo.name, country: geo.country, units: imperial ? "imperial" : "metric", ...Core.parseWeather(json) };
+    } catch (e) {
+      throw new SourceError("parse", String(e?.message || e));
+    }
+  }
+
   // Hacker News: public API, top stories. Stories are cached for a few minutes
   // (in `itemCache`, kept by the caller), so a refresh usually costs one request.
   const HN_ITEM_TTL_MS = 5 * 60_000;
@@ -217,5 +260,5 @@ var ZPSources = (() => {
     return { items };
   }
 
-  return { SourceError, request, retryAt, gmail, calendar, github, hn, DEFAULT_TIMEOUT_MS };
+  return { SourceError, request, retryAt, gmail, calendar, github, githubMarkRead, weather, hn, DEFAULT_TIMEOUT_MS };
 })();

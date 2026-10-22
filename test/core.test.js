@@ -355,3 +355,26 @@ test("GitHub GraphQL pull requests: review decision and CI state", () => {
   assert.deepEqual([...C.parseGithubGraphql({ data: { mine: { nodes: [] } } }).reviews], [], "a section that wasn't asked for is empty");
   assert.throws(() => C.parseGithubGraphql({ errors: [{ message: "Bad query" }] }), /Bad query/);
 });
+
+test("weather and the day timeline", () => {
+  const now = new Date("2026-10-22T11:20:00Z");
+  const json = {
+    utc_offset_seconds: 10800,
+    current: { temperature_2m: 18.4, apparent_temperature: 17.2, weather_code: 61, wind_speed_10m: 12.6, is_day: 1 },
+    hourly: { time: ["2026-10-22T13:00", "2026-10-22T14:00", "2026-10-22T15:00", "2026-10-22T16:00"], temperature_2m: [17, 18, 19, 18], weather_code: [3, 61, 0, 0], precipitation_probability: [10, 70, 0, 0] },
+    daily: { temperature_2m_max: [21.2], temperature_2m_min: [12.8] },
+  };
+  const w = C.parseWeather(json, { now, hours: 3 });
+  assert.equal(w.current.temp, 18);
+  assert.deepEqual({ ...w.today }, { max: 21, min: 13 });
+  assert.equal(w.hours[0].time.toISOString(), "2026-10-22T11:00:00.000Z", "the 14:00 local hour, still running");
+  assert.equal(w.hours.length, 3);
+  assert.equal(C.weatherKind(61).key, "rain");
+  assert.equal(C.weatherKind(0, false).icon, "🌙");
+
+  const day = new Date(2026, 9, 22);
+  const ev = (h1, h2) => ({ start: new Date(2026, 9, 22, h1), end: new Date(2026, 9, 22, h2), allDay: false });
+  const range = C.timelineRange([ev(7, 8), ev(21, 22)], day, new Date(2026, 9, 22, 12));
+  assert.equal(new Date(range.from).getHours(), 7);
+  assert.equal(new Date(range.to).getHours(), 22);
+});
