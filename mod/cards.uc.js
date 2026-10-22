@@ -96,7 +96,6 @@ var ZPCards = (() => {
 
   const keyOf = (card, s) => defs.get(card.type)?.key?.(card, s) ?? `${card.type}:${s.items}`;
   const host = (u) => u.hostname.replace(/^www\./, "");
-  const chunk = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
   // --- Gmail -------------------------------------------------------------------
   register({
@@ -106,9 +105,9 @@ var ZPCards = (() => {
       const m = u.pathname.match(/\/mail\/u\/(\d+)/);
       return { type: "gmail", account: m ? Number(m[1]) : 0 };
     },
-    key: (card, s) => `gmail:${card.account ?? 0}:${s.items}:${s.gmailPages}`,
+    key: (card, s) => `gmail:${card.account ?? 0}:${s.gmailCount}`,
     load: ({ card, s, fetchFn, signal, timeoutMs }) =>
-      Sources.gmail({ fetchFn, account: card.account ?? 0, limit: s.items * s.gmailPages, signal, timeoutMs }),
+      Sources.gmail({ fetchFn, account: card.account ?? 0, limit: s.gmailCount, signal, timeoutMs }),
     count: (d) => d.unread,
     titleCounts: true, // "Inbox (3) - …" while the tab is open
     create: (card) => ({ url: `https://mail.google.com/mail/u/${card.account ?? 0}/#inbox?compose=new`, label: "create.gmail" }),
@@ -121,10 +120,8 @@ var ZPCards = (() => {
         extra: s.gmailSnippets ? m.snippet : "",
         url: m.url,
       }));
-      const header = ui.header(t("gmail.title"), d.unread ? t("unread", { n: d.unread }) : "");
-      if (!rows.length) return [header, ui.empty(t("gmail.empty"))];
-      // More than one card's worth: pages of the same size, side by side.
-      return rows.length > s.items ? [header, ui.pages(chunk(rows, s.items))] : [header, ...rows];
+      // One list; the card scrolls when there are more than fit.
+      return [ui.header(t("gmail.title"), d.unread ? t("unread", { n: d.unread }) : ""), ...(rows.length ? rows : [ui.empty(t("gmail.empty"))])];
     },
   });
 
@@ -251,7 +248,7 @@ var ZPCards = (() => {
         out.push(...(d.items.length
           ? firstAndMore(d.items.map((n) => ui.row({
             primary: n.title, secondary: `${n.repo} · ${n.reason.replace(/_/g, " ")}`, meta: ui.relTime(n.date), url: n.url,
-            action: n.id ? { text: "✓", label: t("gh.mark-read"), run: markRead(n), quiet: true } : null,
+            action: n.id && s.githubMarkRead ? { text: "✓", label: t("gh.mark-read"), run: markRead(n), quiet: true } : null,
           })))
           : [ui.empty(t("gh.empty"))]));
       }

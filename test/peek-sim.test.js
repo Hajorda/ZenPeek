@@ -47,7 +47,7 @@ function setup({
   routes = {}, secrets = {}, prefs: givenPrefs = {}, observable = false, fetchImpl = null, openResult = undefined,
   tabs = [], active = true, bus = null, files = null, panelRect = null, locale = "en-US",
 } = {}) {
-  let prefs = { "gmail-pages": 1, ...givenPrefs };
+  let prefs = { "gmail-count": 5, ...givenPrefs };
   let reads = 0;
   const observers = new Set();
   const pref = (k, d) => {
@@ -300,7 +300,7 @@ const manyMails = `<feed><fullcount>6</fullcount>${Array.from({ length: 6 }, (_,
 const gmailRoute = { "https://mail.google.com/mail/u/0/feed/atom": manyMails };
 
 test("settings: items per card and Gmail snippets", async () => {
-  const s = setup({ routes: gmailRoute, prefs: { items: 3, "gmail-snippets": true } });
+  const s = setup({ routes: gmailRoute, prefs: { "gmail-count": 3, "gmail-snippets": true } });
   await sleep(5);
   s.hover().enter(gmailTab);
   await sleep(250);
@@ -401,7 +401,7 @@ test("settings are read once and refreshed when a preference changes", async () 
   assert.equal(s.reads(), afterStart, "no preference reads while hovering");
   assert.equal(s.rows().length, 5);
 
-  s.setPref("items", 3); // observer drops the cache; next hover reads again
+  s.setPref("gmail-count", 3); // observer drops the cache; next hover reads again
   s.hover().enter(gmailTab);
   await sleep(220);
   assert.ok(s.reads() > afterStart);
@@ -904,33 +904,33 @@ test("rows are keyboard-accessible links", async () => {
 
 // --- Pages, pin, "show as", mark as read, weather, "+", cards from other mods ---
 
-test("gmail: more mail than fits shows pages of the same size, plus a + for a new mail", async () => {
-  const s = setup({ routes: gmailRoute, prefs: { items: 3, "gmail-pages": 3 } });
+test("gmail: one scrolling list, as many mails as chosen, plus a + for a new mail", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { "gmail-count": 10 } });
   await sleep(5);
   s.hover().enter(gmailTab);
   await sleep(250);
-  const pages = s.find((n) => n.props?.class === "zp-page");
-  assert.deepEqual(pages.map((p) => p.children.length), [3, 3]);
-  assert.equal(s.find((n) => n.props?.class === "zp-dot").length, 2);
+  assert.equal(s.rows().length, 6, "all six mails, no pages");
+  assert.equal(s.find((n) => /zp-pin|zp-page/.test(n.props?.class || "")).length, 0);
   const [fab] = s.find((n) => n.props?.class === "zp-fab");
   fab.props.onclick({ button: 0 });
   assert.match(s.opened.at(-1).url, /compose=new/);
 });
 
-test("pin: a pinned preview ignores the mouse leaving and other Essentials; a click elsewhere closes it", async () => {
-  const s = setup({ routes: gmailRoute });
+test("settings: the + button and Show more can be turned off", async () => {
+  const s = setup({ routes: gmailRoute, prefs: { "create-button": false } });
   await sleep(5);
   s.hover().enter(gmailTab);
   await sleep(250);
-  const [pin] = s.find((n) => /zp-pin/.test(n.props?.class || ""));
-  pin.props.onclick({ currentTarget: { setAttribute() {} } });
-  s.hover().leave(gmailTab);
-  s.hover().enter({ label: "HN", url: "https://news.ycombinator.com/" });
-  await sleep(500);
-  assert.equal(s.isOpen(), true);
-  assert.match(s.rendered(), /Gmail/);
-  s.clickOutside();
-  assert.equal(s.isOpen(), false);
+  assert.equal(s.find((n) => n.props?.class === "zp-fab").length, 0);
+  const hn = setup({
+    prefs: { items: 2, "show-more": false },
+    routes: (url) => (url.endsWith("topstories.json") ? "[1,2,3,4]" : JSON.stringify({ id: 1, title: "Story", score: 1, descendants: 0 })),
+  });
+  await sleep(5);
+  hn.hover().enter({ label: "HN", url: "https://news.ycombinator.com/" });
+  await sleep(250);
+  assert.equal(hn.rows().length, 2);
+  assert.equal(hn.find((n) => n.props?.class === "zp-more").length, 0);
 });
 
 test("show as: an Essential can use another card, or just the page", async () => {

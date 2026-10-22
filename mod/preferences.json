@@ -216,6 +216,12 @@
     "defaultValue": true
   },
   {
+    "property": "zen.peek.show-more",
+    "type": "checkbox",
+    "label": "\"Show more\" button when a card has more items",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Unread badges on Essentials"
   },
@@ -357,23 +363,27 @@
     "defaultValue": false
   },
   {
-    "property": "zen.peek.gmail-pages",
+    "property": "zen.peek.gmail-count",
     "type": "dropdown",
-    "label": "Pages of mail (scroll sideways for the next page)",
-    "defaultValue": 3,
+    "label": "Mails to show (the card scrolls)",
+    "defaultValue": 10,
     "placeholder": false,
     "options": [
       {
-        "label": "1 page",
-        "value": 1
+        "label": "5",
+        "value": 5
       },
       {
-        "label": "2 pages",
-        "value": 2
+        "label": "10",
+        "value": 10
       },
       {
-        "label": "3 pages",
-        "value": 3
+        "label": "15",
+        "value": 15
+      },
+      {
+        "label": "20",
+        "value": 20
       }
     ]
   },
@@ -446,6 +456,12 @@
     "property": "zen.peek.github-ci",
     "type": "checkbox",
     "label": "Show the checks (CI) status of my pull requests",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.github-mark-read",
+    "type": "checkbox",
+    "label": "✓ button to mark a notification as read",
     "defaultValue": true
   },
   {

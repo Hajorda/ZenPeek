@@ -112,11 +112,10 @@
 }
 #zen-peek-root {
   width: 320px;
-  min-height: 90px;
-  max-height: min(640px, 85vh);
+  /* Fixed width (a setting); the height follows the content up to a limit, then scrolls. */
+  max-height: min(480px, 80vh);
   overflow: auto;
-  /* Drag the bottom-right corner to make the card taller or shorter. */
-  resize: vertical;
+  overscroll-behavior: contain;
   padding: 8px;
   box-sizing: border-box;
   background: var(--zp-bg);
@@ -174,7 +173,7 @@
 .zp-empty { color: var(--zp-muted); padding: 12px 6px; text-align: center; }
 .zp-host { color: var(--zp-muted); font-size: 11px; padding: 6px; }
 .zp-snapshot { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--zp-line); }
-.zp-button {
+#zen-peek-panel .zp-button {
   margin: 4px 6px 6px;
   font: inherit;
   padding: 5px 10px;
@@ -195,33 +194,18 @@
 @keyframes zp-shimmer { to { background-position: -200% 0; } }
 
 /* High-contrast / forced colours: system colours and visible borders. */
-/* Pin */
-.zp-pin {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  margin: -2px -2px -2px 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--zp-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s;
+/* Buttons: Zen styles <button> in its window (native look, min sizes, square
+   corners); start every button in the card from a clean slate. */
+#zen-peek-panel button {
+  appearance: none;
+  -moz-appearance: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
 }
-.zp-pin::before {
-  content: "";
-  display: block;
-  width: 14px;
-  height: 14px;
-  margin: auto;
-  background: currentColor;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M10.3 1.3a1 1 0 0 1 1.4 0l3 3a1 1 0 0 1-.4 1.7l-1.9.6-2.2 2.2.5 3a1 1 0 0 1-1.7.9L7 10.8l-3.8 3.9a.8.8 0 0 1-1.1-1.1L5.9 9.8 3.3 7.2a1 1 0 0 1 .9-1.7l3 .5 2.2-2.2.6-1.9z'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-#zen-peek-root:hover .zp-pin, .zp-pin:focus-visible, .zp-pin[aria-pressed="true"] { opacity: 1; }
-.zp-pin:hover { background: var(--zp-hover); color: var(--zp-fg); }
-.zp-pin[aria-pressed="true"] { color: var(--zp-accent); }
 
 /* Calendar colours */
 .zp-has-colour { position: relative; padding-inline-start: 12px; }
@@ -265,7 +249,7 @@
 
 /* "Show N more" */
 .zp-more-items[hidden] { display: none; }
-.zp-more {
+#zen-peek-panel .zp-more {
   display: block;
   width: calc(100% - 12px);
   margin: 4px 6px 2px;
@@ -279,28 +263,6 @@
   cursor: pointer;
 }
 .zp-more:hover { background: var(--zp-hover); color: var(--zp-fg); }
-
-/* Pages (Gmail) */
-.zp-pages {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-.zp-page { flex: 0 0 100%; scroll-snap-align: start; min-width: 0; }
-.zp-dots { display: flex; justify-content: center; gap: 6px; padding: 6px 0 2px; }
-.zp-dot {
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: var(--zp-line);
-  cursor: pointer;
-  transition: width 0.18s, background 0.18s;
-}
-.zp-dot[aria-current="true"] { width: 16px; background: var(--zp-muted); }
 
 /* Setup form */
 .zp-form { padding: 0 6px 6px; }
@@ -319,9 +281,9 @@
 .zp-form-error { color: light-dark(#b42318, #ff8a80); font-size: 12px; min-height: 16px; margin: 4px 0 2px; }
 .zp-form-error:empty { min-height: 0; margin: 0; }
 .zp-form-buttons { display: flex; gap: 6px; margin-top: 6px; }
-.zp-form-buttons .zp-button { margin: 0; }
+#zen-peek-panel .zp-form-buttons .zp-button { margin: 0; }
 .zp-primary-button { background: var(--zp-badge-bg); color: var(--zp-badge-fg); border-color: transparent; }
-.zp-form-link, .zp-form-note { display: block; margin: 8px 0 0; padding: 0; font: inherit; font-size: 12px; color: var(--zp-muted); }
+#zen-peek-panel .zp-form-link, .zp-form-note { display: block; margin: 8px 0 0; padding: 0; font: inherit; font-size: 12px; color: var(--zp-muted); }
 .zp-form-link { border: none; background: none; cursor: pointer; text-decoration: underline; }
 
 /* Quiet row action (GitHub "mark as read") */
@@ -334,8 +296,8 @@
 .zp-row:hover .zp-action-quiet, .zp-action-quiet:focus-visible { opacity: 1; }
 .zp-action-quiet:hover { background: var(--zp-line); color: var(--zp-fg); }
 
-/* "+" (new mail, new event): its own strip at the bottom (beside Gmail's page
-   dots), sticky so it stays reachable while the card scrolls, never over text. */
+/* "+" (new mail, new event): its own strip at the bottom, sticky so it stays
+   reachable while the card scrolls, never over text. */
 .zp-fab-wrap {
   position: sticky;
   bottom: 0;
@@ -344,8 +306,7 @@
   padding-top: 4px;
   pointer-events: none;
 }
-.zp-paged + .zp-fab-wrap { margin-top: -32px; }
-.zp-fab {
+#zen-peek-panel .zp-fab {
   pointer-events: auto;
   width: 32px;
   height: 32px;
@@ -385,7 +346,7 @@
 .zp-wx-pop { font-size: 10px; color: light-dark(#1d4ed8, #93c5fd); }
 
 @media (prefers-reduced-motion: reduce) {
-  .zp-pin, .zp-dot { transition: none; }
+  .zp-fab { transition: none; }
 }
 
 @media (forced-colors: active) {

@@ -77,7 +77,7 @@
     cards: Object.fromEntries(Cards.types().map((type) => [type, bool(`card-${type}`, true)])),
     // Card options
     gmailSnippets: bool("gmail-snippets", false),
-    gmailPages: Math.min(3, Math.max(1, num("gmail-pages", 3))),
+    gmailCount: Math.min(20, Math.max(1, num("gmail-count", 10))),
     calendarPast: bool("calendar-past", true),
     calendarNext: bool("calendar-next", true),
     calendarJoin: oneOf("calendar-join", ["soon", "always", "off"], "soon"),
@@ -87,12 +87,14 @@
     githubMine: bool("github-mine", true),
     githubNotifications: bool("github-notifications", true),
     githubCi: bool("github-ci", true),
+    githubMarkRead: bool("github-mark-read", true),
     // Weather
     weatherLocation: str("weather-location", "").trim(),
     weatherUnits: oneOf("weather-units", ["metric", "imperial"], "metric"),
     // Look
     theme: oneOf("theme", ["zen", "own"], "zen"),
     createButton: bool("create-button", true),
+    showMore: bool("show-more", true),
     // "Show as" choices per Essential: { "https://site/path": "weather" | "page" | … }
     choices: readChoices(),
     // Badges
@@ -434,14 +436,6 @@
 
   const h = (...a) => Zen.html(...a);
 
-  const reducedMotion = () => {
-    try {
-      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch {
-      return false;
-    }
-  };
-
   // The helpers every card draws with (see cards.uc.js and the README).
   // `card` is set when drawing a card's data, so ui.update() can store new data.
   function makeUi(tab, s, card = null) {
@@ -475,17 +469,6 @@
           icon ? h("img", { class: "zp-icon", src: icon, alt: "" }) : null,
           h("span", { class: "zp-title", text: title }),
           badge ? h("span", { class: "zp-badge", text: badge }) : null,
-          h("button", {
-            class: "zp-pin", "aria-pressed": String(pinned), title: t(pinned ? "unpin" : "pin"), "aria-label": t(pinned ? "unpin" : "pin"),
-            onclick: (e) => {
-              pinned = !pinned;
-              const b = e.currentTarget;
-              b.setAttribute("aria-pressed", String(pinned));
-              b.setAttribute("title", t(pinned ? "unpin" : "pin"));
-              b.setAttribute("aria-label", t(pinned ? "unpin" : "pin"));
-              note(pinned ? "pinned" : "unpinned");
-            },
-          }),
         ]);
       },
       row({ primary, secondary = "", extra = "", meta = "", url = "", dim = false, accent = false, label = "", action = null, colour = "" }) {
@@ -538,9 +521,9 @@
       empty: (text) => h("div", { class: "zp-empty", text }),
       subhead: (text) => h("div", { class: "zp-subhead", role: "heading", "aria-level": "2", text }),
       button: (text, onclick) => h("button", { class: "zp-button", text, onclick }),
-      // Extra rows behind a "Show N more" button.
+      // Extra rows behind a "Show N more" button (nothing, if that's turned off).
       more(nodes) {
-        if (!nodes.length) return [];
+        if (!nodes.length || !s.showMore) return [];
         const box = h("div", { class: "zp-more-items", hidden: "hidden" }, nodes);
         const button = h("button", {
           class: "zp-more", text: t("more", { n: nodes.length }),
@@ -552,27 +535,6 @@
           },
         });
         return [box, button];
-      },
-      // Pages of rows side by side: swipe, scroll the wheel, or use the dots.
-      pages(list) {
-        const label = (i) => t("page-of", { n: i + 1, total: list.length });
-        const at = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-        const go = (i) => track.scrollTo({ left: Math.max(0, Math.min(list.length - 1, i)) * track.clientWidth, behavior: reducedMotion() ? "auto" : "smooth" });
-        let wheelUntil = 0;
-        const track = h("div", {
-          class: "zp-pages",
-          onscroll: () => dots.forEach((d, j) => d.setAttribute("aria-current", String(j === at()))),
-          // A vertical wheel turns the page (one page per gesture).
-          onwheel: (e) => {
-            if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
-            e.preventDefault();
-            if (Date.now() < wheelUntil) return;
-            wheelUntil = Date.now() + 400;
-            go(at() + Math.sign(e.deltaY));
-          },
-        }, list.map((nodes, i) => h("div", { class: "zp-page", role: "group", "aria-label": label(i) }, nodes)));
-        const dots = list.map((_, i) => h("button", { class: "zp-dot", "aria-label": label(i), "aria-current": String(i === 0), onclick: () => go(i) }));
-        return h("div", { class: "zp-paged" }, [track, h("div", { class: "zp-dots" }, dots)]);
       },
     };
     return ui;
@@ -608,14 +570,14 @@
   }
 
   // Setup inside the preview: a small form instead of a dialog box. The preview
-  // stays open (pinned) while you type; Enter saves, Esc cancels.
+  // stays open while you type; Enter saves, Esc cancels.
   function openSetup(tab, def) {
     const s = settings();
     const st = def.setup;
     ensurePanel(s);
     token++;
     shownFor = tab;
-    pinned = true;
+    formOpen = true;
     const ui = makeUi(tab, s);
     const input = h("input", {
       class: "zp-input", type: st.input, placeholder: t(`setup.${st.form}.placeholder`),
@@ -631,7 +593,7 @@
         return;
       }
       await saveSetup(st, value);
-      pinned = false;
+      formOpen = false;
       note("setup-saved", { card: def.type });
       show(tab);
     };
@@ -657,7 +619,7 @@
       ]),
     ]);
     if (!openAt(tab, s)) {
-      pinned = false;
+      formOpen = false;
       promptSetup(def);
       return;
     }
@@ -702,7 +664,7 @@
   let shownFor = null;
   let token = 0;
   let keyboard = null; // { restore: element } while the preview was opened from the keyboard
-  let pinned = false; // the pin button: stays open until unpinned, Esc, or a click elsewhere
+  let formOpen = false; // a setup form is open: stays until saved, Esc, or a click elsewhere
   let point = null; // last pointer position
   let movedAt = 0; // when the pointer last moved
   let leftAt = null; // where the pointer was when it left the Essential
@@ -826,7 +788,7 @@
   function hide(reason = "left") {
     token++;
     shownFor = null;
-    pinned = false;
+    formOpen = false;
     clearTimeout(prefetchTimer);
     clearTimeout(hideTimer);
     const restore = keyboard?.restore;
@@ -853,7 +815,7 @@
   // pointer moves toward the preview. "pause": close after 0.4 s.
   function scheduleHide() {
     clearTimeout(hideTimer);
-    if (keyboard || pinned) return; // closes with Esc, the shortcut, a click elsewhere, or when focus leaves
+    if (keyboard || formOpen) return; // closes with Esc, the shortcut, a click elsewhere, or when focus leaves
     if (settings().close !== "smart" || !Zen.panelRect) {
       hideTimer = later(() => hide("left"), 400);
       return;
@@ -876,7 +838,7 @@
   const onPanelLeave = () => scheduleHide();
 
   function onEnterEssential(tab) {
-    if (pinned) return; // a pinned preview stays on its Essential
+    if (formOpen) return; // a setup form stays on its Essential
     cancelHide();
     clearTimeout(showTimer);
     clearTimeout(prefetchTimer);
@@ -1129,7 +1091,7 @@
       })),
     ]));
     cleanups.push(Zen.onClickOutside((target) => {
-      if (pinned && !target?.closest?.("tab")) hide("outside");
+      if (formOpen && !target?.closest?.("tab")) hide("outside");
     }));
     cleanups.push(Zen.watchTabs((tab) => {
       if (tab) snapshots.delete(tab);

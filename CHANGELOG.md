@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+**Changed**
+- Gmail is one list that scrolls down (no sideways pages); choose 5, 10, 15 or 20 mails.
+- Removed the pin button and the resize corner. Cards have a fixed width and grow with their content up to a limit, then scroll; nearly empty cards stay small.
+- New settings to turn off "Show more" and GitHub's ✓ mark-as-read.
+
+**Fixed**
+- Buttons in the card ("+", "Show more", Join…) looked square in Zen: Zen's own button style replaced ours. Every button in the card now starts from a clean slate.
+
 ## 0.4.0
 
 **New**

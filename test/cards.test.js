@@ -20,7 +20,7 @@ test("each site gets the right card", () => {
 test("cache keys change with every setting that changes the data", () => {
   const s = { items: 5, githubReviews: true, githubMine: true, githubNotifications: true, githubCi: true };
   assert.notEqual(Cards.keyOf({ type: "gmail", account: 0 }, s), Cards.keyOf({ type: "gmail", account: 1 }, s));
-  assert.notEqual(Cards.keyOf({ type: "gmail", account: 0 }, s), Cards.keyOf({ type: "gmail", account: 0 }, { ...s, items: 3 }));
+  assert.notEqual(Cards.keyOf({ type: "gmail", account: 0 }, s), Cards.keyOf({ type: "gmail", account: 0 }, { ...s, gmailCount: 3 }));
   assert.notEqual(Cards.keyOf({ type: "github" }, s), Cards.keyOf({ type: "github" }, { ...s, githubCi: false }));
   assert.equal(Cards.keyOf({ type: "hn" }, s), "hn:5");
 });

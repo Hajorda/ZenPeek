@@ -11,7 +11,7 @@ Arc-style previews and unread badges for [Zen Browser](https://zen-browser.app):
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.4.0-F5B83D)
+![Version](https://img.shields.io/badge/version-0.4.1-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>
@@ -26,7 +26,7 @@ Hover an Essential for a moment (0.3 s) and a card pops out next to it:
 
 | Essential | Preview | Setup |
 | --- | --- | --- |
-| **Gmail** | Unread count and your latest unread mails (sender, subject, time), with up to 3 pages to scroll sideways through. **+** writes a new mail. Click one to open it. | None: uses the Google account you're signed in to in Zen. Works per account (`/mail/u/0`, `/u/1`, …). |
+| **Gmail** | Unread count and your latest unread mails (sender, subject, time), in one list that scrolls (5 to 20 mails). **+** writes a new mail. Click one to open it. | None: uses the Google account you're signed in to in Zen. Works per account (`/mail/u/0`, `/u/1`, …). |
 | **Google Calendar** | Today's events: past ones dimmed, "now" and "in 25 min" highlighted, a **Join** button for Meet/Zoom/Teams meetings, a timeline of the day with the current time, a colour per calendar, and your next event if today is done. **+** adds an event. Handles recurring events (including "2nd Tuesday", "last Friday"), time zones and moved meetings. | Paste your calendar's private iCal address once (see below). |
 | **GitHub** | Pull requests waiting for your review, your open PRs with their review status and CI (✓ ✗ ●), and unread notifications (✓ marks one as read). Click to open. | A personal access token with the `notifications` scope (add `repo` to include private repositories). |
 | **Hacker News** | Top stories. | None. |
@@ -39,7 +39,7 @@ Moving from one Essential to the next switches the card instantly; moving toward
 
 <img src="assets/badges.png" width="420" alt="Essentials with a small unread dot in the corner, and with numbers">
 
-**On any card:** the **pin** keeps it open (until you unpin it, press Esc or click elsewhere); **Show more** reveals more items; drag the bottom-right corner to make the card taller.
+**On any card:** **Show more** reveals more items. Cards have a fixed width (a setting) and grow with their content up to a limit, then scroll; nearly empty cards stay small.
 
 **Show as.** Right-click an Essential → **Zen Peek: show as** to pick its card: Automatic, Page preview, or any card (say, Weather on a site Zen Peek doesn't know).
 
@@ -89,6 +89,7 @@ Open Sine → Zen Peek. Changes apply right away; no restart needed.
 | | Language: same as Zen · English · Türkçe | Same as Zen |
 | | Colours: match Zen's theme (and theme mods) · Zen Peek's own | Match Zen |
 | | "+" button on Gmail and Calendar | On |
+| | "Show more" button when a card has more items | On |
 | Badges | Show unread badges: as a dot (like Arc) · with the number · off | Dot |
 | | Read unread counts from page titles (chat apps) | On |
 | Data | Refresh at most every 30 s · 1.5 · 5 · 15 min | 1.5 min |
@@ -97,12 +98,12 @@ Open Sine → Zen Peek. Changes apply right away; no restart needed.
 | | Give up on a service that doesn't answer after 5 · 10 · 20 · 30 s | 10 s |
 | Cards | Gmail · Google Calendar · GitHub · Hacker News · Weather (off = page snapshot) | On |
 | Gmail | Show the first lines of each mail | Off |
-| | Pages of mail: 1 · 2 · 3 | 3 |
+| | Mails to show (the card scrolls): 5 · 10 · 15 · 20 | 10 |
 | Calendar | Past events (dimmed) · next event when today is done | On · On |
 | | "Join" button: from 10 min before · always · off | From 10 min before |
 | | Today as a timeline · a colour per calendar | On · On |
 | Weather | Place (a city) · units °C/km/h or °F/mph | — · °C |
-| GitHub | Review requests · my PRs · CI status · notifications | All on |
+| GitHub | Review requests · my PRs · CI status · ✓ mark as read · notifications | All on |
 | Other sites | Page snapshot when the tab is open · also preview pinned tabs | On · Off |
 | Troubleshooting | Log what Zen Peek does to the Browser Console | Off |
 
@@ -170,7 +171,7 @@ if (window.ZenPeek?.registerCard) addMyCard(window.ZenPeek);
 window.addEventListener("ZenPeekReady", (e) => addMyCard(e.detail)); // also after Zen Peek updates
 ```
 
-`ui` has `header`, `row` (`primary`, `secondary`, `meta`, `url`, `action`), `empty`, `subhead`, `button`, `more`, `pages`, `el` (any element, text only), `update(data)`, `relTime`, `clock`, `t`, and `s` (the settings). Cards are drawn as text only, never HTML. A card that throws shows an error, and other cards keep working. Turn a card off with the `zen.peek.card-<type>` preference. `registerCard` returns a function that removes the card.
+`ui` has `header`, `row` (`primary`, `secondary`, `meta`, `url`, `action`), `empty`, `subhead`, `button`, `more`, `el` (any element, text only), `update(data)`, `relTime`, `clock`, `t`, and `s` (the settings). Cards are drawn as text only, never HTML. A card that throws shows an error, and other cards keep working. Turn a card off with the `zen.peek.card-<type>` preference. `registerCard` returns a function that removes the card.
 
 ## Roadmap
 
