@@ -1,13 +1,13 @@
 {
   "id": "zen-peek",
   "name": "Zen Peek",
-  "description": "Arc-style hover previews and unread badges for Zen Essentials: your latest Gmail, today's calendar with Join buttons, GitHub pull requests and notifications, Hacker News, or a snapshot of the page.",
+  "description": "Arc-style hover previews and unread badges for Zen Essentials: Gmail, Google Calendar, GitHub, Reddit, Vercel, Netlify, Sentry, Hacker News, the weather, or a snapshot of the page. Runs entirely in your browser.",
   "homepage": "https://github.com/hajorda/ZenPeek",
   "readme": "https://raw.githubusercontent.com/hajorda/ZenPeek/main/README.md",
   "image": "https://raw.githubusercontent.com/hajorda/ZenPeek/main/assets/logo.png",
   "author": "hajorda",
   "ai": "yes",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "style": {
     "chrome": "mod/userChrome.css",
     "content": "mod/settings.css"
@@ -57,6 +57,7 @@
     "Badges",
     "Gmail",
     "Calendar",
+    "GitHub",
     "Productivity"
   ],
   "fork": [

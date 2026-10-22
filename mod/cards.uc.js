@@ -15,7 +15,7 @@ var ZPCards = (() => {
   const Sources = ZPSources;
 
   /**
-   * @typedef {{ type: string, account?: number }} Card
+   * @typedef {{ type: string, account?: number, sub?: string, team?: string, org?: string }} Card
    * @typedef {object} Setup  Something a card needs before it can load.
    * @property {"secret" | "pref"} kind  Where it's kept: the password manager, or a zen.peek.* preference.
    * @property {string} name             Secret name, or preference name without "zen.peek.".
@@ -38,6 +38,7 @@ var ZPCards = (() => {
    * @property {Setup} [setup]
    * @property {(data: any, ui: any) => any[]} render
    * @property {(card: Card) => { url: string, label: string }} [create]  A "+" button: write a mail, add an event…
+   * @property {(card: Card) => string} [signIn]      Where to sign in, when the site says you aren't.
    * @property {boolean} [external]                    Added by another mod.
    */
 
@@ -111,6 +112,7 @@ var ZPCards = (() => {
     count: (d) => d.unread,
     titleCounts: true, // "Inbox (3) - …" while the tab is open
     create: (card) => ({ url: `https://mail.google.com/mail/u/${card.account ?? 0}/#inbox?compose=new`, label: "create.gmail" }),
+    signIn: (card) => `https://accounts.google.com/ServiceLogin?service=mail&continue=${encodeURIComponent(`https://mail.google.com/mail/u/${card.account ?? 0}/`)}`,
     render(d, ui) {
       const { t, s } = ui;
       const rows = d.mails.map((m) => ui.row({
@@ -254,6 +256,154 @@ var ZPCards = (() => {
       }
       if (out.length === 1) out.push(ui.empty(t("gh.all-off")));
       return out;
+    },
+  });
+
+  // --- Reddit (the browser's own Reddit login) -------------------------------------------
+  register({
+    type: "reddit",
+    match(u) {
+      if (!/(^|\.)reddit\.com$/.test(host(u))) return null;
+      const m = u.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})(\/|$)/);
+      return { type: "reddit", sub: m ? m[1] : "" };
+    },
+    key: (card, s) => `reddit:${(card.sub || "").toLowerCase()}:${s.items}:${Number(s.redditFeed)}`,
+    load: ({ card, s, fetchFn, signal, timeoutMs }) =>
+      Sources.reddit({ fetchFn, sub: card.sub || "", limit: s.items * 2, feed: s.redditFeed, signal, timeoutMs }),
+    count: (d) => (d.unread ? d.unread.length : null),
+    signIn: () => "https://www.reddit.com/login/",
+    create: (card) => ({ url: card.sub ? `https://www.reddit.com/r/${card.sub}/submit` : "https://www.reddit.com/submit", label: "create.reddit" }),
+    render(d, ui) {
+      const { t, s } = ui;
+      const firstAndMore = (rows) => [...rows.slice(0, s.items), ...ui.more(rows.slice(s.items))];
+      const post = (p) => ui.row({
+        primary: p.title, secondary: d.sub ? `u/${p.author}` : p.sub,
+        meta: `▲ ${p.score} · ${t("hn.comments", { n: p.comments })}`, url: p.url,
+      });
+      if (d.sub) {
+        return [ui.header(`r/${d.sub}`), ...(d.posts.length ? firstAndMore(d.posts.map(post)) : [ui.empty(t("reddit.no-posts"))])];
+      }
+      const out = [ui.header(t("reddit.title"), d.unread.length ? t("unread", { n: d.unread.length }) : "")];
+      out.push(ui.subhead(t("reddit.inbox")));
+      out.push(...(d.unread.length
+        ? firstAndMore(d.unread.map((m) => ui.row({
+          primary: m.kind === "reply" ? t("reddit.reply-from", { name: m.author }) : m.author || m.sub,
+          meta: ui.relTime(m.date), secondary: m.title, extra: m.body, url: m.url,
+        })))
+        : [ui.empty(t("reddit.no-unread"))]));
+      if (s.redditFeed && d.posts.length) {
+        out.push(ui.subhead(t("reddit.feed")));
+        out.push(...firstAndMore(d.posts.map(post)));
+      }
+      return out;
+    },
+  });
+
+  // --- Deploys: Vercel and Netlify (a personal token) --------------------------------------
+  const DEPLOY_MARK = { ready: "✓", failed: "✗", building: "●", queued: "○", canceled: "–" };
+  /** @returns {Setup} */
+  const tokenSetup = (name, link) => ({
+    kind: "secret", name, input: "password", form: name,
+    button: `button.set-${name}`, menu: `menu.set-${name}`, link,
+    validate: (v) => (/^\S{16,}$/.test(String(v).trim()) ? String(v).trim() : null),
+  });
+  // Failing deploys: the latest deploy of a project that failed.
+  const failing = (deploys) => {
+    const latest = new Map();
+    for (const x of deploys) if (!latest.has(x.project)) latest.set(x.project, x);
+    return [...latest.values()].filter((x) => x.state === "failed").length;
+  };
+  function renderDeploys(title, d, ui) {
+    const { t, s } = ui;
+    const failed = failing(d.deploys);
+    const rows = d.deploys.map((x) => ui.row({
+      primary: x.project,
+      secondary: [x.production ? t("deploy.production") : x.branch, x.message].filter(Boolean).join(" · "),
+      meta: `${DEPLOY_MARK[x.state] || ""} ${t(`deploy.${x.state}`)} · ${ui.relTime(x.date)}`,
+      accent: x.state === "failed",
+      label: [x.project, t(`deploy.${x.state}`), x.message].filter(Boolean).join(", "),
+      url: x.url,
+    }));
+    return [
+      ui.header(title, failed ? t("deploy.failing", { n: failed }) : ""),
+      ...(rows.length ? [...rows.slice(0, s.items), ...ui.more(rows.slice(s.items))] : [ui.empty(t("deploy.none"))]),
+    ];
+  }
+
+  const VERCEL_PAGES = new Set(["", "dashboard", "account", "new", "docs", "login", "signup", "templates", "integrations", "marketplace", "pricing", "blog", "changelog", "guides", "teams"]);
+  register({
+    type: "vercel",
+    match(u) {
+      if (host(u) !== "vercel.com") return null;
+      const first = u.pathname.split("/")[1] || "";
+      return { type: "vercel", team: VERCEL_PAGES.has(first) ? "" : first };
+    },
+    key: (card, s) => `vercel:${card.team || ""}:${s.items}`,
+    setup: tokenSetup("vercel", "https://vercel.com/account/tokens"),
+    async load({ card, s, fetchFn, signal, timeoutMs, secret }) {
+      const token = await secret("vercel");
+      if (signal.aborted) throw new Sources.SourceError("aborted", "Cancelled");
+      return Sources.vercel({ fetchFn, token, team: card.team || "", limit: s.items * 2, signal, timeoutMs });
+    },
+    count: (d) => failing(d.deploys),
+    create: () => ({ url: "https://vercel.com/new", label: "create.project" }),
+    render: (d, ui) => renderDeploys(d.team ? `Vercel · ${d.team}` : "Vercel", d, ui),
+  });
+
+  register({
+    type: "netlify",
+    match: (u) => (host(u) === "app.netlify.com" ? { type: "netlify" } : null),
+    key: (card, s) => `netlify:${s.items}`,
+    setup: tokenSetup("netlify", "https://app.netlify.com/user/applications#personal-access-tokens"),
+    async load({ s, fetchFn, signal, timeoutMs, secret }) {
+      const token = await secret("netlify");
+      if (signal.aborted) throw new Sources.SourceError("aborted", "Cancelled");
+      return Sources.netlify({ fetchFn, token, limit: s.items * 2, signal, timeoutMs });
+    },
+    count: (d) => failing(d.deploys),
+    create: () => ({ url: "https://app.netlify.com/start", label: "create.project" }),
+    render: (d, ui) => renderDeploys("Netlify", d, ui),
+  });
+
+  // --- Sentry (a personal token) ------------------------------------------------------------
+  const SENTRY_HOSTS = new Set(["www", "us", "de", "docs", "blog", "status", "develop", "open"]);
+  const DAY = 24 * 3600_000;
+  register({
+    type: "sentry",
+    match(u) {
+      const h = host(u);
+      if (h !== "sentry.io" && !h.endsWith(".sentry.io")) return null;
+      const sub = h.endsWith(".sentry.io") ? h.slice(0, -".sentry.io".length) : "";
+      const path = u.pathname.match(/^\/organizations\/([\w-]+)/);
+      return { type: "sentry", org: path ? path[1] : sub && !SENTRY_HOSTS.has(sub) ? sub : "" };
+    },
+    key: (card, s) => `sentry:${card.org || ""}:${s.items}`,
+    setup: tokenSetup("sentry", "https://sentry.io/settings/account/api/auth-tokens/"),
+    async load({ card, s, fetchFn, signal, timeoutMs, secret }) {
+      const token = await secret("sentry");
+      if (signal.aborted) throw new Sources.SourceError("aborted", "Cancelled");
+      return Sources.sentry({ fetchFn, token, org: card.org || "", limit: s.items * 2, signal, timeoutMs });
+    },
+    // New issues: first seen in the last 24 hours.
+    count: (d) => d.issues.filter((i) => Date.now() - +i.firstSeen < DAY).length,
+    render(d, ui) {
+      const { t, s, now } = ui;
+      const fresh = d.issues.filter((i) => +now - +i.firstSeen < DAY).length;
+      const rows = d.issues.map((i) => {
+        const isNew = +now - +i.firstSeen < DAY;
+        return ui.row({
+          primary: i.title,
+          secondary: [i.project, i.shortId, i.culprit].filter(Boolean).join(" · "),
+          meta: isNew ? t("sentry.new-one") : `${i.count}× · ${ui.relTime(i.lastSeen)}`,
+          accent: isNew || i.level === "fatal",
+          label: [i.title, i.project, isNew ? t("sentry.new-one") : "", t("sentry.events", { n: i.count })].filter(Boolean).join(", "),
+          url: i.url,
+        });
+      });
+      return [
+        ui.header(`Sentry · ${d.org}`, fresh ? t("sentry.new", { n: fresh }) : ""),
+        ...(rows.length ? [...rows.slice(0, s.items), ...ui.more(rows.slice(s.items))] : [ui.empty(t("sentry.none"))]),
+      ];
     },
   });
 

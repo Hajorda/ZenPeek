@@ -992,3 +992,60 @@ test("cards from other mods: added, shown, and a broken one can't break the prev
   await sleep(250);
   assert.match(s.rendered(), /Couldn't load this preview/);
 });
+
+test("reddit (signed-in): unread inbox with a badge and the home feed; a subreddit shows its posts", async () => {
+  const t = Math.floor(Date.now() / 1000) - 600;
+  const routes = (url) => {
+    if (url.includes("/message/unread.json")) {
+      return JSON.stringify({ data: { children: [{ kind: "t1", data: { author: "ada", link_title: "My post", body: "Nice!", context: "/r/x/comments/1/_/c1/", created_utc: t } }] } });
+    }
+    if (url.startsWith("https://www.reddit.com/.json")) return JSON.stringify({ data: { children: [{ kind: "t3", data: { title: "Front page", subreddit_name_prefixed: "r/pics", score: 5, num_comments: 2, permalink: "/r/pics/1/", created_utc: t } }] } });
+    if (url.includes("/r/zen/hot.json")) return JSON.stringify({ data: { children: [{ kind: "t3", data: { title: "Pinned", stickied: true } }, { kind: "t3", data: { title: "Zen 2.0", author: "bob", score: 9, permalink: "/r/zen/2/", created_utc: t } }] } });
+    return undefined;
+  };
+  const tab = { label: "Reddit", url: "https://www.reddit.com/" };
+  const s = setup({ routes, tabs: [tab], prefs: { badges: "count" } });
+  await sleep(5);
+  s.hover().enter(tab);
+  await sleep(250);
+  assert.match(s.rendered(), /Inbox.*u\/ada replied.*My post.*Your feed.*Front page/);
+  assert.ok(s.calls.every((c) => c.init.credentials === "include"), "uses the browser's Reddit login");
+  s.peek().updateBadges();
+  assert.equal(tab.badge, "1");
+  s.hover().enter({ label: "r/zen", url: "https://www.reddit.com/r/zen/" });
+  await sleep(250);
+  assert.match(s.rendered(), /r\/zen.*Zen 2\.0/);
+  assert.doesNotMatch(s.rendered(), /Pinned/);
+});
+
+test("vercel, netlify and sentry: latest deploys and issues, with failing / new counts", async () => {
+  const now = Date.now();
+  const routes = (url) => {
+    if (url.startsWith("https://api.vercel.com/v6/deployments")) {
+      return JSON.stringify({ deployments: [
+        { name: "site", state: "ERROR", created: now - 60000, target: "production", meta: { githubCommitMessage: "Fix nav" }, inspectorUrl: "https://vercel.com/i/1" },
+        { name: "docs", state: "READY", created: now - 120000, url: "docs.vercel.app" },
+      ] });
+    }
+    if (url.startsWith("https://api.netlify.com/api/v1/sites?")) return JSON.stringify([{ id: "s1", name: "blog" }]);
+    if (url.includes("/sites/s1/deploys")) return JSON.stringify([{ id: "d1", state: "building", branch: "main", title: "New post", created_at: new Date(now).toISOString() }]);
+    if (url.startsWith("https://sentry.io/api/0/organizations/?")) return JSON.stringify([{ slug: "acme", links: { organizationUrl: "https://acme.sentry.io" } }]);
+    if (url.startsWith("https://acme.sentry.io/api/0/organizations/acme/issues/")) {
+      return JSON.stringify([{ title: "TypeError: x is undefined", project: { slug: "web" }, shortId: "WEB-1", count: "12", firstSeen: new Date(now - 3600e3).toISOString(), lastSeen: new Date(now).toISOString(), permalink: "https://acme.sentry.io/issues/1/" }]);
+    }
+    return undefined;
+  };
+  const s = setup({ routes, secrets: { vercel: "v".repeat(24), netlify: "n".repeat(24), sentry: "s".repeat(24) } });
+  await sleep(5);
+  s.hover().enter({ label: "Vercel", url: "https://vercel.com/dashboard" });
+  await sleep(250);
+  assert.match(s.rendered(), /Vercel 1 failing \| site ✗ Failed.*Production · Fix nav \| docs ✓ Ready/);
+  s.hover().enter({ label: "Netlify", url: "https://app.netlify.com/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Netlify \| blog ● Building.*main · New post/);
+  assert.equal(s.rows()[0].props.role, "link");
+  s.hover().enter({ label: "Sentry", url: "https://sentry.io/issues/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Sentry · acme.*1 new.*TypeError.*web · WEB-1/);
+  assert.ok(s.calls.filter((c) => c.url.includes("api.vercel.com") || c.url.includes("netlify") || c.url.includes("sentry")).every((c) => /^Bearer /.test(c.init.headers.authorization)));
+});

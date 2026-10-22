@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+**New cards** (all in your browser, no server):
+- **Reddit:** unread replies and messages with a badge, and your home feed; a subreddit Essential shows its hot posts. Uses your Reddit login; offers **Sign in** if you aren't.
+- **Vercel:** latest deployments with status; the badge counts projects whose latest deploy failed. Works for team addresses too.
+- **Netlify:** the latest deploy of your recently updated sites, with the same statuses and badge.
+- **Sentry:** unresolved issues; new ones (last 24 hours) highlighted and counted in the badge.
+
+Each has a checkbox under Cards; Reddit also has "Also show posts from your home feed".
+
 ## 0.4.2
 
 **Changed**

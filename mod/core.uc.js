@@ -451,6 +451,86 @@ var ZPCore = (() => {
     };
   }
 
+  // --- Reddit, deploys (Vercel, Netlify), Sentry -----------------------------------------
+
+  const REDDIT = "https://www.reddit.com";
+  // A Reddit listing of messages (replies, mentions, private messages) or posts.
+  function parseRedditListing(json) {
+    const children = json?.data?.children;
+    if (!Array.isArray(children)) throw new Error("unexpected Reddit response");
+    return children.map(({ kind, data: d = {} }) => {
+      const date = new Date((Number(d.created_utc) || 0) * 1000);
+      if (kind === "t3") {
+        return {
+          kind: "post", title: d.title || "", sub: d.subreddit_name_prefixed || "", author: d.author || "",
+          score: Number(d.score) || 0, comments: Number(d.num_comments) || 0, pinned: !!d.stickied,
+          url: d.permalink ? REDDIT + d.permalink : "", date,
+        };
+      }
+      return {
+        kind: kind === "t1" ? "reply" : "message",
+        title: kind === "t1" ? d.link_title || d.subject || "" : d.subject || "",
+        sub: d.subreddit_name_prefixed || "", author: d.author || "", body: String(d.body || "").replace(/\s+/g, " ").trim(),
+        url: kind === "t1" && d.context ? REDDIT + d.context : `${REDDIT}/message/messages/${d.id || ""}`, date,
+      };
+    });
+  }
+
+  // Deploy states of Vercel and Netlify, in one vocabulary.
+  function deployState(state) {
+    const s = String(state || "").toLowerCase();
+    if (s === "ready") return "ready";
+    if (s === "error" || s === "failed") return "failed";
+    if (s === "canceled" || s === "cancelled" || s === "rejected") return "canceled";
+    if (s === "queued" || s === "new" || s === "enqueued" || s === "pending") return "queued";
+    return "building"; // building, initializing, processing, uploading, preparing…
+  }
+
+  // Vercel /v6/deployments → display items.
+  function parseVercelDeployments(json) {
+    if (!Array.isArray(json?.deployments)) throw new Error("unexpected Vercel response");
+    return json.deployments.map((d) => ({
+      project: d.name || "",
+      message: d.meta?.githubCommitMessage?.split("\n")[0] || d.meta?.gitlabCommitMessage?.split("\n")[0] || "",
+      branch: d.meta?.githubCommitRef || d.meta?.gitlabCommitRef || "",
+      production: d.target === "production",
+      state: deployState(d.state || d.readyState),
+      date: new Date(d.created || d.createdAt || 0),
+      url: d.inspectorUrl || (d.url ? `https://${d.url}` : ""),
+    }));
+  }
+
+  // A Netlify site and its latest deploy → a display item.
+  function parseNetlifyDeploy(site, deploy) {
+    const d = deploy || site?.published_deploy || {};
+    return {
+      project: site?.name || d.name || "",
+      message: String(d.title || "").split("\n")[0],
+      branch: d.branch || "",
+      production: d.context === "production",
+      state: deployState(d.state),
+      date: new Date(d.created_at || site?.updated_at || 0),
+      url: site?.name && d.id ? `https://app.netlify.com/sites/${site.name}/deploys/${d.id}` : site?.admin_url || "",
+    };
+  }
+
+  // Sentry organization issues → display items.
+  function parseSentryIssues(list) {
+    if (!Array.isArray(list)) throw new Error("unexpected Sentry response");
+    return list.map((i) => ({
+      title: i.title || i.metadata?.title || "",
+      project: i.project?.slug || "",
+      shortId: i.shortId || "",
+      culprit: i.culprit || "",
+      level: i.level || "error",
+      count: Number(i.count) || 0,
+      users: Number(i.userCount) || 0,
+      firstSeen: new Date(i.firstSeen || 0),
+      lastSeen: new Date(i.lastSeen || 0),
+      url: i.permalink || "",
+    }));
+  }
+
   // --- Unread counts in tab titles -------------------------------------------------------
   // "(3) WhatsApp", "[12] Discord", "(99+) Slack", "Inbox (3) - me@gmail.com - Gmail",
   // and a dot for "• Discord" / "* Slack" (unread, no number). Years like "(2024)" are ignored.
@@ -656,6 +736,7 @@ var ZPCore = (() => {
     zoned, tzOffset, parseGithubNotifications, parseGithubSearch, parseGithubGraphql, parseHnItem,
     parseTitleBadge, badgeText, relTime, clock, eventStatus, joinable, inTriangle, headingToward,
     timelineRange, weatherKind, parseWeather,
+    parseRedditListing, deployState, parseVercelDeployments, parseNetlifyDeploy, parseSentryIssues,
     Cache, toStorable, fromStorable,
   };
 })();

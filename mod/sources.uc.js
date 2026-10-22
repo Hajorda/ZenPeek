@@ -241,6 +241,88 @@ var ZPSources = (() => {
     }
   }
 
+  // Reddit, with the browser's own Reddit login. A subreddit gives its hot
+  // posts; otherwise unread messages (replies, mentions, messages) and,
+  // optionally, the home feed. raw_json=1 keeps text unescaped.
+  async function reddit({ fetchFn, sub = "", limit = 5, feed = true, signal = undefined, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+    const get = (path) => request(fetchFn, `https://www.reddit.com${path}${path.includes("?") ? "&" : "?"}raw_json=1&limit=${limit}`,
+      { init: { credentials: "include" }, signal, timeoutMs, as: "json" });
+    const listing = async (path) => {
+      const json = await get(path);
+      try {
+        return Core.parseRedditListing(json);
+      } catch (e) {
+        throw new SourceError("parse", String(e?.message || e));
+      }
+    };
+    if (sub) return { sub, posts: (await listing(`/r/${encodeURIComponent(sub)}/hot.json`)).filter((p) => !p.pinned) };
+    let unread;
+    try {
+      unread = await listing("/message/unread.json");
+    } catch (e) {
+      // Reddit refuses the inbox when nobody is signed in.
+      throw e?.code === "auth" ? new SourceError("signed-out", "Not signed in to Reddit in this browser") : e;
+    }
+    const posts = feed ? (await listing("/.json")).filter((p) => p.kind === "post" && !p.pinned) : [];
+    return { sub: "", unread, posts };
+  }
+
+  // Vercel: the latest deployments (a personal token from vercel.com/account/tokens).
+  // `team` is the team's slug from the Essential's address, if any.
+  async function vercel({ fetchFn, token, team = "", limit = 5, signal = undefined, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+    if (!token) throw new SourceError("setup", "Set a Vercel token");
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (team) q.set("slug", team);
+    const json = await request(fetchFn, `https://api.vercel.com/v6/deployments?${q}`,
+      { init: { headers: { authorization: `Bearer ${token}` } }, signal, timeoutMs, as: "json" });
+    try {
+      return { team, deploys: Core.parseVercelDeployments(json) };
+    } catch (e) {
+      throw new SourceError("parse", String(e?.message || e));
+    }
+  }
+
+  // Netlify: the latest deploy of your most recently updated sites
+  // (a personal access token from app.netlify.com/user/applications).
+  async function netlify({ fetchFn, token, limit = 5, signal = undefined, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+    if (!token) throw new SourceError("setup", "Set a Netlify token");
+    const init = { headers: { authorization: `Bearer ${token}` } };
+    const api = (path) => request(fetchFn, `https://api.netlify.com/api/v1${path}`, { init, signal, timeoutMs, as: "json" });
+    const sites = await api(`/sites?filter=all&sort_by=updated_at&per_page=${limit}`);
+    if (!Array.isArray(sites)) throw new SourceError("parse", "unexpected Netlify response");
+    const deploys = await Promise.all(sites.slice(0, limit).map(async (site) => {
+      const [latest] = await api(`/sites/${encodeURIComponent(site.id)}/deploys?per_page=1`).catch((e) => {
+        if (e?.code === "aborted") throw e;
+        return []; // that site's deploys aren't readable: show its published one
+      });
+      return Core.parseNetlifyDeploy(site, latest);
+    }));
+    return { deploys: deploys.sort((a, b) => +b.date - +a.date) };
+  }
+
+  // Sentry: unresolved issues of an organization, latest first (a personal
+  // token from sentry.io/settings/account/api/auth-tokens with org:read and
+  // event:read). Without an organization in the address, the first one is used.
+  async function sentry({ fetchFn, token, org = "", limit = 5, signal = undefined, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+    if (!token) throw new SourceError("setup", "Set a Sentry token");
+    const init = { headers: { authorization: `Bearer ${token}` } };
+    let base = org ? `https://${org}.sentry.io` : "";
+    if (!org) {
+      const orgs = await request(fetchFn, "https://sentry.io/api/0/organizations/?member=1", { init, signal, timeoutMs, as: "json" });
+      const first = Array.isArray(orgs) ? orgs[0] : null;
+      if (!first?.slug) throw new SourceError("not-found", "No Sentry organization for this token");
+      org = first.slug;
+      base = first.links?.organizationUrl || `https://${org}.sentry.io`;
+    }
+    const q = new URLSearchParams({ query: "is:unresolved", sort: "date", statsPeriod: "14d", limit: String(limit) });
+    const list = await request(fetchFn, `${base}/api/0/organizations/${encodeURIComponent(org)}/issues/?${q}`, { init, signal, timeoutMs, as: "json" });
+    try {
+      return { org, issues: Core.parseSentryIssues(list) };
+    } catch (e) {
+      throw new SourceError("parse", String(e?.message || e));
+    }
+  }
+
   // Hacker News: public API, top stories. Stories are cached for a few minutes
   // (in `itemCache`, kept by the caller), so a refresh usually costs one request.
   const HN_ITEM_TTL_MS = 5 * 60_000;
@@ -260,5 +342,5 @@ var ZPSources = (() => {
     return { items };
   }
 
-  return { SourceError, request, retryAt, gmail, calendar, github, githubMarkRead, weather, hn, DEFAULT_TIMEOUT_MS };
+  return { SourceError, request, retryAt, gmail, calendar, github, githubMarkRead, weather, reddit, vercel, netlify, sentry, hn, DEFAULT_TIMEOUT_MS };
 })();

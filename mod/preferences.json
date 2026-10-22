@@ -332,6 +332,30 @@
     "defaultValue": true
   },
   {
+    "property": "zen.peek.card-reddit",
+    "type": "checkbox",
+    "label": "Reddit",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-vercel",
+    "type": "checkbox",
+    "label": "Vercel",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-netlify",
+    "type": "checkbox",
+    "label": "Netlify",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.card-sentry",
+    "type": "checkbox",
+    "label": "Sentry",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Gmail"
   },
@@ -447,6 +471,16 @@
     "property": "zen.peek.github-notifications",
     "type": "checkbox",
     "label": "Unread notifications",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Reddit"
+  },
+  {
+    "property": "zen.peek.reddit-feed",
+    "type": "checkbox",
+    "label": "Also show posts from your home feed",
     "defaultValue": true
   },
   {

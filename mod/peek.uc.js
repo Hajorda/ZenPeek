@@ -87,6 +87,7 @@
     githubNotifications: bool("github-notifications", true),
     githubCi: bool("github-ci", true),
     githubMarkRead: bool("github-mark-read", true),
+    redditFeed: bool("reddit-feed", true),
     // Weather
     weatherLocation: str("weather-location", "").trim(),
     weatherUnits: oneOf("weather-units", ["metric", "imperial"], "metric"),
@@ -553,11 +554,10 @@
     const out = [ui.header(Zen.tabTitle(tab)), ui.empty(message)];
     if (def.setup && ["setup", "auth", "parse", "not-found"].includes(err.code)) {
       out.push(ui.button(t(def.setup.button), () => openSetup(tab, def)));
-    } else if (err.code === "signed-out" && card.type === "gmail") {
-      const mail = `https://mail.google.com/mail/u/${card.account ?? 0}/`;
+    } else if (err.code === "signed-out" && def.signIn) {
       out.push(ui.button(t("button.sign-in"), () => {
         hide("sign-in");
-        Zen.openLink(`https://accounts.google.com/ServiceLogin?service=mail&continue=${encodeURIComponent(mail)}`, tab, { newTab: true });
+        Zen.openLink(def.signIn(card), tab, { newTab: true });
       }));
     } else if (["network", "timeout", "server"].includes(err.code)) {
       out.push(ui.button(t("button.retry"), () => {
