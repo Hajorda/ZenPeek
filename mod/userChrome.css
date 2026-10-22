@@ -10,7 +10,11 @@
   --zp-muted: light-dark(#71717a, #a1a1aa);
   --zp-line: light-dark(#e4e4e7, #34343a);
   --zp-hover: light-dark(#f4f4f5, #2a2a30);
-  --zp-accent: #10b981;
+  /* Text colours meet WCAG AA (4.5:1) on the card in both themes. */
+  --zp-accent: light-dark(#047857, #34d399);
+  --zp-badge-bg: light-dark(#047857, #10b981);
+  --zp-badge-fg: light-dark(#ffffff, #052e22);
+  --zp-focus: light-dark(#2563eb, #93c5fd);
   color-scheme: light dark;
 }
 #zen-peek-panel.zp-card {
@@ -118,8 +122,8 @@
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 99px;
-  background: var(--zp-accent);
-  color: #fff;
+  background: var(--zp-badge-bg);
+  color: var(--zp-badge-fg);
 }
 .zp-subhead { color: var(--zp-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 6px 2px; }
 .zp-row { padding: 6px; border-radius: 8px; }
@@ -127,12 +131,31 @@
 .zp-link { cursor: pointer; }
 .zp-link:hover { background: var(--zp-hover); }
 .zp-row-main { display: flex; gap: 8px; align-items: baseline; }
+.zp-link:focus-visible, .zp-button:focus-visible, .zp-action:focus-visible {
+  outline: 2px solid var(--zp-focus);
+  outline-offset: -2px;
+}
+#zen-peek-panel:focus { outline: none; }
+.zp-action {
+  align-self: center;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 99px;
+  border: none;
+  background: var(--zp-badge-bg);
+  color: var(--zp-badge-fg);
+  cursor: pointer;
+}
+.zp-action:hover { filter: brightness(1.1); }
 .zp-primary { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zp-meta { color: var(--zp-muted); font-size: 11px; white-space: nowrap; }
 .zp-accent { color: var(--zp-accent); font-weight: 600; }
 .zp-secondary { color: var(--zp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
 .zp-extra { color: var(--zp-muted); font-size: 12px; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
-.zp-dim { opacity: .5; }
+/* Past events: muted colour instead of transparency, so they stay readable (AA). */
+.zp-dim .zp-primary, .zp-dim .zp-meta { color: var(--zp-muted); font-weight: 400; }
 .zp-empty { color: var(--zp-muted); padding: 12px 6px; text-align: center; }
 .zp-host { color: var(--zp-muted); font-size: 11px; padding: 6px; }
 .zp-snapshot { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--zp-line); }
@@ -155,3 +178,46 @@
   animation: zp-shimmer 1.2s linear infinite;
 }
 @keyframes zp-shimmer { to { background-position: -200% 0; } }
+
+/* High-contrast / forced colours: system colours and visible borders. */
+@media (forced-colors: active) {
+  #zen-peek-root { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .zp-meta, .zp-secondary, .zp-extra, .zp-subhead, .zp-host, .zp-empty, .zp-dim .zp-primary { color: GrayText; }
+  .zp-accent { color: Highlight; }
+  .zp-badge, .zp-action { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+  .zp-link:hover { background: Highlight; color: HighlightText; }
+  .zp-link:focus-visible, .zp-button:focus-visible, .zp-action:focus-visible { outline-color: Highlight; }
+  .zp-arrow { display: none; }
+  tab[zen-peek-badge] .tab-icon-stack::after { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+}
+
+/* --- Unread badges on Essentials (tab[zen-peek-badge="3"], or "" for a dot) --- */
+tab[zen-peek-badge] .tab-icon-stack {
+  position: relative;
+}
+tab[zen-peek-badge] .tab-icon-stack::after {
+  content: attr(zen-peek-badge);
+  position: absolute;
+  top: -6px;
+  inset-inline-end: -9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: #dc2626; /* white text on it: 4.8:1 */
+  color: #fff;
+  font: 600 10px/16px system-ui, sans-serif;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--zen-colors-tertiary, light-dark(#fff, #1f1f23));
+  z-index: 1;
+}
+tab[zen-peek-badge=""] .tab-icon-stack::after {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  top: -2px;
+  inset-inline-end: -3px;
+}

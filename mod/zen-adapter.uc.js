@@ -7,7 +7,10 @@
 //   browsingContext.currentWindowGlobal.drawSnapshot (as Zen's Glance uses it),
 //   gZenVerticalTabsManager._prefsRightSide (which side the panel opens on), #navigator-toolbox (the sidebar),
 //   gZenWorkspaces.{promiseInitialized, privateWindowOrDisabled}, #tabContextMenu, TabContextMenu.contextTab,
-//   openTrustedLinkIn
+//   openTrustedLinkIn, Services.focus.activeWindow,
+//   tab events: TabAttrModified, TabOpen, TabClose, TabPinned, TabUnpinned,
+//   TabAddedToEssentials, TabRemovedFromEssentials (Zen), and the tab's .tab-icon-stack (badge CSS)
+/* exported ZPZen */
 // eslint-disable-next-line no-var
 var ZPZen = (() => {
   "use strict";
@@ -61,6 +64,72 @@ var ZPZen = (() => {
       };
     },
 
+    // Essentials (and pinned tabs, if asked), in sidebar order, across workspaces.
+    essentials(includePinned = false) {
+      return [...gBrowser.tabs].filter((t) =>
+        t.hasAttribute("zen-essential") || (includePinned && t.pinned && !t.hasAttribute("zen-empty-tab")));
+    },
+
+    // Calls `onChange()` when tabs change in ways that can affect badges
+    // (title, loaded state, pinned/Essential state, opened/closed).
+    watchTabs(onChange) {
+      const container = gBrowser.tabContainer;
+      const attr = (e) => {
+        const changed = e.detail?.changed || [];
+        if (changed.some((c) => c === "label" || c === "pending" || c === "busy" || c === "zen-essential")) onChange(e.target);
+      };
+      const any = (e) => onChange(e.target);
+      const events = ["TabOpen", "TabClose", "TabPinned", "TabUnpinned"];
+      container.addEventListener("TabAttrModified", attr);
+      for (const ev of events) container.addEventListener(ev, any);
+      // Zen dispatches these on the tab; they bubble to the window.
+      window.addEventListener("TabAddedToEssentials", any);
+      window.addEventListener("TabRemovedFromEssentials", any);
+      return () => {
+        container.removeEventListener("TabAttrModified", attr);
+        for (const ev of events) container.removeEventListener(ev, any);
+        window.removeEventListener("TabAddedToEssentials", any);
+        window.removeEventListener("TabRemovedFromEssentials", any);
+      };
+    },
+
+    // Unread badge on a tab's icon: "3", "99+", "" (a dot) or null (none).
+    // Drawn by CSS from the attribute; `label` is read out by screen readers.
+    setBadge(tab, text, label = "") {
+      if (text === null || text === undefined) {
+        if (tab.hasAttribute("zen-peek-badge")) {
+          tab.removeAttribute("zen-peek-badge");
+          tab.removeAttribute("aria-description");
+        }
+        return;
+      }
+      if (tab.getAttribute("zen-peek-badge") !== text) tab.setAttribute("zen-peek-badge", text);
+      if (label) tab.setAttribute("aria-description", label);
+    },
+
+    // Is this the window the user is working in?
+    windowActive() {
+      try {
+        return Services.focus.activeWindow === window;
+      } catch {
+        return document.hasFocus();
+      }
+    },
+
+    // Pointer position in the window, for the "moving toward the preview" check.
+    onPointerMove(fn) {
+      const move = (e) => fn({ x: e.clientX, y: e.clientY });
+      window.addEventListener("mousemove", move, { passive: true, capture: true });
+      return () => window.removeEventListener("mousemove", move, { capture: true });
+    },
+
+    // The tab that has keyboard focus in the sidebar, or the selected tab.
+    focusedTab() {
+      const el = document.activeElement;
+      const tab = el?.closest?.("tab");
+      return tab && gBrowser.isTab(tab) ? tab : gBrowser.selectedTab;
+    },
+
     tabUrl(tab) {
       return tab._zenPinnedInitialState?.entry?.url || tab.linkedBrowser?.currentURI?.spec || "";
     },
@@ -97,7 +166,7 @@ var ZPZen = (() => {
     //  "popup" — the classic look: an arrow points at the hovered Essential; it
     //            switches instantly, follows the Essential if the sidebar moves,
     //            and closes if the Essential disappears.
-    panel({ onEnter, onLeave, onLost, style = "card" }) {
+    panel({ onEnter, onLeave, onLost, onFocusOut, style = "card" }) {
       if (panel && panelStyle === style) return panel;
       this.removePanel();
       // Remove a panel left by an older copy (after an update without restart).
@@ -112,6 +181,8 @@ var ZPZen = (() => {
       root.id = "zen-peek-root";
       panel = document.createElementNS(HTML, "div");
       panel.id = "zen-peek-panel";
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("tabindex", "-1");
       panel.className = style === "popup" ? "zp-card zp-classic" : "zp-card";
       panel.append(root);
       if (style === "popup") {
@@ -124,6 +195,10 @@ var ZPZen = (() => {
       onAnchorLost = onLost || null;
       panel.addEventListener("mouseenter", onEnter);
       panel.addEventListener("mouseleave", onLeave);
+      // Keyboard: focus moving out of the preview (e.g. a click elsewhere).
+      panel.addEventListener("focusout", (e) => {
+        if (!panel?.contains(e.relatedTarget)) onFocusOut?.();
+      });
       // Keep it on screen when its content grows or shrinks.
       resizeObserver = new ResizeObserver(() => this.reposition());
       resizeObserver.observe(root);
@@ -131,6 +206,15 @@ var ZPZen = (() => {
     },
 
     panelRoot: () => panel?.querySelector("#zen-peek-root"),
+    panelElement: () => panel,
+    panelRect: () => (panel && panel.classList.contains("zp-open") ? panel.getBoundingClientRect() : null),
+    // Name read out by screen readers ("Preview: Gmail").
+    setPanelLabel(text) {
+      panel?.setAttribute("aria-label", text);
+    },
+    // Keyboard: the panel's focusable rows and buttons, in order.
+    panelFocusables: () => [...(panel?.querySelectorAll("[tabindex='0'], button") || [])],
+    panelHasFocus: () => !!panel && panel.contains(document.activeElement),
     panelOpen: () => !!panel?.classList.contains("zp-open"),
     get panelStyle() {
       return panelStyle;
@@ -305,29 +389,41 @@ var ZPZen = (() => {
       }
     },
 
-    // Extra items on the tab right-click menu; `show(tab)` decides visibility.
+    // Extra items on the tab right-click menu; `show(tab)` decides visibility and
+    // `label()` the text (read each time, so a language change applies at once).
+    // Returns a function that removes them again. Items left by an older copy
+    // (after an update without restart) are replaced, never duplicated.
     addTabMenuItems(items) {
       const menu = document.getElementById("tabContextMenu");
-      if (!menu) return;
+      if (!menu) return () => {};
+      for (const old of menu.querySelectorAll("[id^='zen-peek-menu-']")) old.remove();
       const sep = document.createXULElement("menuseparator");
-      const els = items.map(({ label, command }) => {
+      sep.id = "zen-peek-menu-separator";
+      const els = items.map(({ id, command }) => {
         const mi = document.createXULElement("menuitem");
-        mi.setAttribute("label", label);
+        mi.id = `zen-peek-menu-${id}`;
         mi.addEventListener("command", () => command(TabContextMenu.contextTab));
         return mi;
       });
       menu.append(sep, ...els);
-      menu.addEventListener("popupshowing", (e) => {
+      const onShowing = (e) => {
         if (e.target !== menu) return;
         const tab = TabContextMenu.contextTab;
         let any = false;
         items.forEach((it, i) => {
           const visible = !!tab && it.show(tab);
           els[i].hidden = !visible;
+          if (visible) els[i].setAttribute("label", it.label());
           any ||= visible;
         });
         sep.hidden = !any;
-      });
+      };
+      menu.addEventListener("popupshowing", onShowing);
+      return () => {
+        menu.removeEventListener("popupshowing", onShowing);
+        sep.remove();
+        for (const el of els) el.remove();
+      };
     },
   };
 })();

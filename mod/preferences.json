@@ -24,7 +24,7 @@
     "property": "zen.peek.delay",
     "type": "dropdown",
     "label": "Show the preview after hovering for",
-    "defaultValue": 500,
+    "defaultValue": 300,
     "placeholder": false,
     "options": [
       {
@@ -46,6 +46,23 @@
       {
         "label": "1.2 seconds",
         "value": 1200
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.close",
+    "type": "dropdown",
+    "label": "When the mouse leaves the Essential",
+    "defaultValue": "smart",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Close quickly, but stay open while moving toward the preview",
+        "value": "smart"
+      },
+      {
+        "label": "Close after a short pause (0.4 s)",
+        "value": "pause"
       }
     ]
   },
@@ -96,31 +113,6 @@
     ]
   },
   {
-    "property": "zen.peek.refresh",
-    "type": "dropdown",
-    "label": "Refresh data at most every",
-    "defaultValue": 90,
-    "placeholder": false,
-    "options": [
-      {
-        "label": "30 seconds",
-        "value": 30
-      },
-      {
-        "label": "1.5 minutes",
-        "value": 90
-      },
-      {
-        "label": "5 minutes",
-        "value": 300
-      },
-      {
-        "label": "15 minutes",
-        "value": 900
-      }
-    ]
-  },
-  {
     "property": "zen.peek.motion",
     "type": "dropdown",
     "label": "Animation (floating card)",
@@ -155,6 +147,145 @@
       {
         "label": "In a new tab",
         "value": "new"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.shortcut",
+    "type": "dropdown",
+    "label": "Keyboard shortcut to preview the focused Essential",
+    "defaultValue": "alt-shift-p",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Alt+Shift+P",
+        "value": "alt-shift-p"
+      },
+      {
+        "label": "Ctrl+Alt+P",
+        "value": "ctrl-alt-p"
+      },
+      {
+        "label": "Off",
+        "value": "off"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.language",
+    "type": "dropdown",
+    "label": "Language",
+    "defaultValue": "auto",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "Same as Zen",
+        "value": "auto"
+      },
+      {
+        "label": "English",
+        "value": "en"
+      },
+      {
+        "label": "Türkçe",
+        "value": "tr"
+      }
+    ]
+  },
+  {
+    "type": "separator",
+    "label": "Unread badges on Essentials"
+  },
+  {
+    "property": "zen.peek.badges",
+    "type": "dropdown",
+    "label": "Show unread badges",
+    "defaultValue": "count",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "With the number",
+        "value": "count"
+      },
+      {
+        "label": "As a dot",
+        "value": "dot"
+      },
+      {
+        "label": "Off",
+        "value": "off"
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.badges-title",
+    "type": "checkbox",
+    "label": "Read unread counts from page titles (Slack, Discord, WhatsApp, Telegram, Messenger…)",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Data"
+  },
+  {
+    "property": "zen.peek.refresh",
+    "type": "dropdown",
+    "label": "Refresh data at most every",
+    "defaultValue": 90,
+    "placeholder": false,
+    "options": [
+      {
+        "label": "30 seconds",
+        "value": 30
+      },
+      {
+        "label": "1.5 minutes",
+        "value": 90
+      },
+      {
+        "label": "5 minutes",
+        "value": 300
+      },
+      {
+        "label": "15 minutes",
+        "value": 900
+      }
+    ]
+  },
+  {
+    "property": "zen.peek.background",
+    "type": "checkbox",
+    "label": "Keep Essentials' data up to date in the background (for badges and instant previews)",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.persist",
+    "type": "checkbox",
+    "label": "Remember previews between restarts (stored in your Zen profile)",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.timeout",
+    "type": "dropdown",
+    "label": "Give up on a service that doesn't answer after",
+    "defaultValue": 10,
+    "placeholder": false,
+    "options": [
+      {
+        "label": "5 seconds",
+        "value": 5
+      },
+      {
+        "label": "10 seconds",
+        "value": 10
+      },
+      {
+        "label": "20 seconds",
+        "value": 20
+      },
+      {
+        "label": "30 seconds",
+        "value": 30
       }
     ]
   },
@@ -213,6 +344,27 @@
     "defaultValue": true
   },
   {
+    "property": "zen.peek.calendar-join",
+    "type": "dropdown",
+    "label": "\"Join\" button for online meetings (Meet, Zoom, Teams…)",
+    "defaultValue": "soon",
+    "placeholder": false,
+    "options": [
+      {
+        "label": "From 10 minutes before the start",
+        "value": "soon"
+      },
+      {
+        "label": "Always",
+        "value": "always"
+      },
+      {
+        "label": "Off",
+        "value": "off"
+      }
+    ]
+  },
+  {
     "type": "separator",
     "label": "GitHub"
   },
@@ -226,6 +378,12 @@
     "property": "zen.peek.github-mine",
     "type": "checkbox",
     "label": "My open pull requests and their review status",
+    "defaultValue": true
+  },
+  {
+    "property": "zen.peek.github-ci",
+    "type": "checkbox",
+    "label": "Show the checks (CI) status of my pull requests",
     "defaultValue": true
   },
   {

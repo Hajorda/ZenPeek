@@ -1,5 +1,5 @@
 // Runs the real peek.uc.js (with core + sources) against a fake adapter and network.
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -17,11 +17,36 @@ const findAll = (n, pred, out = []) => {
   return out;
 };
 
-// Options for the newer tests (defaults keep the original behaviour):
+// Options (defaults keep the original behaviour):
 //  observable  — prefs support observers; setPref() changes a pref and notifies
 //  fetchImpl   — replace the fake network: (url, init) => Response-like
 //  openResult  — what the panel's openPanel() returns (false = refused)
-function setup({ routes = {}, secrets = {}, prefs = {}, observable = false, fetchImpl = null, openResult = undefined } = {}) {
+//  tabs        — the Essentials (for badges and the background refresh)
+//  active      — is this the window in use (background refresh runs only there)
+//  bus         — share Services.obs between setups (= windows)
+//  files       — a Map standing in for the profile folder (IOUtils)
+//  panelRect   — where the open panel is (enables the "moving toward it" check)
+//  locale      — Zen's language
+const all = [];
+afterEach(() => {
+  for (const s of all.splice(0)) s.peek()?.dispose();
+});
+
+function makeBus() {
+  const observers = new Set();
+  return {
+    addObserver: (o) => observers.add(o),
+    removeObserver: (o) => observers.delete(o),
+    notifyObservers: (subject, topic) => {
+      for (const o of [...observers]) o.observe(subject, topic);
+    },
+  };
+}
+
+function setup({
+  routes = {}, secrets = {}, prefs = {}, observable = false, fetchImpl = null, openResult = undefined,
+  tabs = [], active = true, bus = null, files = null, panelRect = null, locale = "en-US",
+} = {}) {
   prefs = { ...prefs };
   let reads = 0;
   const observers = new Set();
@@ -33,21 +58,43 @@ function setup({ routes = {}, secrets = {}, prefs = {}, observable = false, fetc
   let panelOpts = null;
   const calls = [];
   const opened = [];
+  const snapshots = [];
+  const menu = { added: 0, removed: 0 };
   const root = { children: [], replaceChildren(...c) { this.children = c; } };
   let open = false;
   let hover;
+  let tabsChanged;
+  let pointer;
+  const keydown = [];
   const Zen = {
     supported: true,
     whenReady: async () => {},
     watchHover(h) { hover = h; return () => {}; },
+    watchTabs(cb) { tabsChanged = cb; return () => {}; },
+    essentials: (includePinned) => tabs.filter((t) => !t.pinnedOnly || includePinned),
+    setBadge(tab, text, label) {
+      tab.badge = text ?? undefined;
+      tab.badgeLabel = text === null || text === undefined ? undefined : label;
+    },
+    windowActive: () => active,
+    onPointerMove(fn) { pointer = fn; return () => {}; },
+    focusedTab: () => null,
     tabUrl: (t) => t.url,
     tabTitle: (t) => t.label,
     tabIcon: () => "",
     isLoaded: (t) => !!t.loaded,
-    snapshot: async () => node("canvas"),
+    snapshot: async (tab) => {
+      snapshots.push(tab.label);
+      return node("canvas");
+    },
     panel: (o) => ((panelOpts = o), {}),
     panelRoot: () => root,
+    panelElement: () => null,
     panelOpen: () => open,
+    panelRect: panelRect ? () => (open ? panelRect : null) : undefined,
+    setPanelLabel() {},
+    panelFocusables: () => [],
+    panelHasFocus: () => false,
     openPanel() {
       if (openResult === false) return false;
       open = true;
@@ -55,21 +102,50 @@ function setup({ routes = {}, secrets = {}, prefs = {}, observable = false, fetc
     },
     closePanel() { open = false; },
     lastPlacement: { style: "test" },
+    panelStyle: "card",
+    reposition() {},
+    configure() {},
+    removePanel() {},
     html: node,
     openLink: (url, tab, o) => opened.push({ url, tab: tab.label, ...o }),
-    addTabMenuItems() {},
+    addTabMenuItems() {
+      menu.added++;
+      return () => menu.removed++;
+    },
   };
   const logins = Object.entries(secrets).map(([k, v]) => ({ origin: "chrome://zen-peek", httpRealm: k, password: v }));
   const fetchFn = async (url, init) => {
     calls.push({ url, init });
     if (fetchImpl) return fetchImpl(url, init);
-    const r = routes[url];
+    const r = typeof routes === "function" ? routes(url, init) : routes[url];
     if (r === undefined) return { ok: false, status: 404, text: async () => "", json: async () => ({}) };
     return { ok: true, status: 200, text: async () => r, json: async () => JSON.parse(r) };
   };
-  const win = { addEventListener() {}, removeEventListener() {} };
-  const ctx = loadGlobals(["core.uc.js", "sources.uc.js"], {
+  const win = {
+    addEventListener(type, fn) {
+      if (type === "keydown") keydown.push(fn);
+    },
+    removeEventListener() {},
+  };
+  const io = files && {
+    readJSON: async (path) => {
+      if (!files.has(path)) throw Object.assign(new Error("missing"), { name: "NotFoundError" });
+      return JSON.parse(files.get(path));
+    },
+    writeJSON: async (path, value) => void files.set(path, JSON.stringify(value)),
+    remove: async (path) => void files.delete(path),
+  };
+  const ctx = loadGlobals(["core.uc.js", "strings.uc.js", "sources.uc.js", "cards.uc.js"], {
     Intl, window: win, fetch: fetchFn, ZPZen: Zen, Ci: {}, Components: { Constructor: () => function () {} },
+    document: { activeElement: null },
+    structuredClone,
+    setInterval: (...a) => {
+      const id = setInterval(...a);
+      id.unref?.();
+      return id;
+    },
+    clearInterval,
+    ...(io ? { IOUtils: io, PathUtils: { profileDir: "/profile", join: (...p) => p.join("/") } } : {}),
     console: { ...console, log: (...a) => logs.push(a.join(" ")), warn: (...a) => logs.push(a.join(" ")) },
     Services: {
       prefs: {
@@ -80,23 +156,45 @@ function setup({ routes = {}, secrets = {}, prefs = {}, observable = false, fetc
       },
       logins: { searchLoginsAsync: async ({ httpRealm }) => logins.filter((l) => l.httpRealm === httpRealm) },
       prompt: {},
+      locale: { appLocaleAsBCP47: locale },
+      ...(bus ? { obs: bus } : {}),
     },
   });
   vm.runInContext(readFileSync(new URL("../mod/peek.uc.js", import.meta.url), "utf8"), ctx);
-  return {
-    root, calls, opened, logs, ctx,
+  const api = {
+    root, calls, opened, logs, ctx, snapshots, menu,
     isOpen: () => open,
     hover: () => hover,
     rendered: () => root.children.map(textOf).join(" | "),
     rows: () => root.children.filter((n) => /zp-row/.test(n.props.class || "")),
+    find: (pred) => findAll({ props: {}, children: root.children }, pred),
     reads: () => reads,
     panelOpts: () => panelOpts,
     peek: () => win.ZenPeek,
+    tabsChanged: (tab) => tabsChanged(tab),
+    move: (x, y) => pointer({ x, y }),
+    key: (e) => keydown.forEach((fn) => fn({ preventDefault() {}, stopPropagation() {}, ...e })),
+    setActive: (v) => (active = v),
     setPref(name, value) {
       prefs[name] = value;
       for (const o of observers) o.observe(null, "nsPref:changed", `zen.peek.${name}`);
     },
   };
+  all.push(api);
+  return api;
+}
+
+// GitHub: notifications (REST) and pull requests (GraphQL).
+const reviewMe = { title: "Review me", number: 9, url: "https://github.com/a/b/pull/9", isDraft: false, updatedAt: new Date().toISOString(), repository: { nameWithOwner: "a/b" } };
+function githubRoutes(url) {
+  if (url.includes("/notifications")) return "[]";
+  if (url.endsWith("/graphql")) {
+    return JSON.stringify({ data: {
+      reviews: { nodes: [reviewMe] },
+      mine: { nodes: [{ ...reviewMe, title: "My fix", number: 3, reviewDecision: "APPROVED", commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] } }] },
+    } });
+  }
+  return undefined;
 }
 
 const gmailTab = { label: "Gmail", url: "https://mail.google.com/mail/u/0/#inbox" };
@@ -155,12 +253,7 @@ test("calendar card lists today's events from the stored address", async () => {
 test("github card shows review requests, my PRs and notifications", async () => {
   const s = setup({
     secrets: { github: "ghp_x" },
-    routes: new Proxy({}, { get: (_, url) => {
-      if (typeof url !== "string") return undefined;
-      if (url.includes("/notifications")) return "[]";
-      if (url.includes("review-requested")) return JSON.stringify({ items: [{ number: 9, title: "Review me", html_url: "https://github.com/a/b/pull/9", repository_url: "https://api.github.com/repos/a/b", updated_at: new Date().toISOString() }] });
-      return JSON.stringify({ items: [] });
-    } }),
+    routes: githubRoutes,
   });
   await sleep(5);
   s.hover().enter({ label: "GitHub", url: "https://github.com/" });
@@ -256,13 +349,7 @@ test("settings: calendar hides past events and the next event", async () => {
 });
 
 test("settings: GitHub sections can be turned off", async () => {
-  const routes = new Proxy({}, { get: (_, url) => {
-    if (typeof url !== "string") return undefined;
-    if (url.includes("/notifications")) return "[]";
-    if (url.includes("review-requested")) return JSON.stringify({ items: [{ number: 9, title: "Review me", html_url: "https://github.com/a/b/pull/9", repository_url: "https://api.github.com/repos/a/b", updated_at: new Date().toISOString() }] });
-    return JSON.stringify({ items: [] });
-  } });
-  const s = setup({ routes, secrets: { github: "t" }, prefs: { "github-reviews": false, "github-notifications": false } });
+  const s = setup({ routes: githubRoutes, secrets: { github: "t" }, prefs: { "github-reviews": false, "github-mine": false, "github-notifications": false } });
   await sleep(5);
   s.hover().enter({ label: "GitHub", url: "https://github.com/" });
   await sleep(250);
@@ -465,4 +552,339 @@ test("diagnostics: recent events are kept; debug logging only when switched on",
   s2.hover().enter(gmailTab);
   await sleep(250);
   assert.ok(s2.logs.some((l) => l.includes("[Zen Peek] debug: open")));
+});
+
+// --- Badges, background refresh, sharing, saving, keyboard, Join, smart closing ---
+
+const essential = (label, url, extra = {}) => ({ label, url, loaded: false, ...extra });
+const atomCount = (n) => `<feed><fullcount>${n}</fullcount><entry><title>Hi</title><issued>${new Date().toISOString()}</issued><author><name>Ada</name></author><link href="https://mail.google.com/mail/u/0/#inbox/1"/></entry></feed>`;
+
+test("badges: the background refresh fetches each Essential's data and shows its unread count", async () => {
+  const gmail = essential("Gmail", "https://mail.google.com/mail/u/0/");
+  const notion = essential("Notion", "https://www.notion.so/");
+  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail, notion] });
+  await sleep(5);
+  s.peek().refresh();
+  await sleep(80);
+  assert.equal(s.calls.length, 1);
+  assert.equal(gmail.badge, "4");
+  assert.equal(gmail.badgeLabel, "4 unread");
+  assert.equal(notion.badge, undefined, "no badge without a count");
+  assert.equal(s.isOpen(), false, "nothing opens");
+});
+
+test("badges: counts in page titles (chat apps), dot and off styles", async () => {
+  const wa = essential("(3) WhatsApp", "https://web.whatsapp.com/", { loaded: true });
+  const discord = essential("• Discord | Friends", "https://discord.com/app", { loaded: true });
+  const sleeping = essential("(5) Messenger", "https://www.messenger.com/", { loaded: false });
+  const s = setup({ observable: true, tabs: [wa, discord, sleeping] });
+  await sleep(5);
+  s.peek().updateBadges();
+  assert.equal(wa.badge, "3");
+  assert.equal(discord.badge, "", "unread without a number: a dot");
+  assert.equal(sleeping.badge, undefined, "an unloaded tab's title is old");
+
+  wa.label = "WhatsApp"; // messages read
+  s.tabsChanged(wa);
+  await sleep(80);
+  assert.equal(wa.badge, undefined);
+
+  wa.label = "(120) WhatsApp";
+  s.setPref("badges", "dot");
+  await sleep(200);
+  assert.equal(wa.badge, "", "dot style");
+  s.setPref("badges", "count");
+  await sleep(200);
+  assert.equal(wa.badge, "99+");
+  s.setPref("badges-title", false);
+  await sleep(200);
+  assert.equal(wa.badge, undefined, "reading titles can be turned off");
+  s.setPref("badges-title", true);
+  s.setPref("badges", "off");
+  await sleep(200);
+  assert.equal(wa.badge, undefined, "badges off removes them");
+});
+
+test("badges: an open Gmail tab's live title count wins over older fetched data", async () => {
+  const gmail = essential("Inbox (1) - me@gmail.com - Gmail", "https://mail.google.com/mail/u/0/", { loaded: true });
+  const s = setup({ routes: { [GMAIL_FEED]: atomCount(4) }, tabs: [gmail] });
+  await sleep(5);
+  s.peek().refresh();
+  await sleep(80);
+  assert.equal(gmail.badge, "1");
+  gmail.label = "Starred - me@gmail.com - Gmail"; // another folder: no count in the title
+  s.tabsChanged(gmail);
+  await sleep(80);
+  assert.equal(gmail.badge, "4", "falls back to the fetched count");
+});
+
+test("badges: removed when the mod stops", async () => {
+  const wa = essential("(3) WhatsApp", "https://web.whatsapp.com/", { loaded: true });
+  const s = setup({ tabs: [wa] });
+  await sleep(5);
+  s.peek().updateBadges();
+  assert.equal(wa.badge, "3");
+  s.peek().dispose();
+  assert.equal(wa.badge, undefined);
+  assert.equal(s.menu.added, 1);
+  assert.equal(s.menu.removed, 1, "the right-click menu items are removed too");
+});
+
+test("background refresh: only in the window in use; a failing service is retried later, not every time", async () => {
+  const gmail = essential("Gmail", "https://mail.google.com/mail/u/0/");
+  let fail = true;
+  const s = setup({
+    tabs: [gmail], active: false,
+    fetchImpl: async () => (fail ? { ok: false, status: 500, text: async () => "" } : { ok: true, status: 200, text: async () => atomCount(2) }),
+  });
+  await sleep(5);
+  s.peek().refresh();
+  await sleep(30);
+  assert.equal(s.calls.length, 0, "inactive window: no requests");
+  s.setActive(true);
+  s.peek().refresh();
+  await sleep(30);
+  assert.equal(s.calls.length, 1);
+  fail = false;
+  s.peek().refresh();
+  await sleep(30);
+  assert.equal(s.calls.length, 1, "waits before retrying a failed service");
+  const backoff = s.peek().diagnostics().backoff[0];
+  assert.equal(backoff.code, "server");
+  assert.ok(backoff.waitS > 30);
+});
+
+test("rate limits: the message says when, and no request is made until then", async () => {
+  const s = setup({
+    fetchImpl: async () => ({ ok: false, status: 429, headers: { get: (k) => (k === "retry-after" ? "600" : null) }, text: async () => "" }),
+  });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.match(s.rendered(), /Too many requests for now\. Trying again at/);
+  assert.equal(s.find((n) => n.tag === "button").length, 0, "no retry button");
+  s.hover().leave(gmailTab);
+  await sleep(450);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(s.calls.length, 1, "still waiting: no second request");
+});
+
+test("a service that doesn't answer shows a timeout with a Try again button", async () => {
+  let hang = true;
+  const s = setup({
+    prefs: { timeout: 3 },
+    fetchImpl: (url, init) => (hang
+      ? new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("x"), { name: "AbortError" }))))
+      : Promise.resolve({ ok: true, status: 200, text: async () => atomWith("Back again") })),
+  });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(3300);
+  assert.match(s.rendered(), /didn't answer in time/);
+  const [retry] = s.find((n) => n.tag === "button");
+  assert.match(retry.text, /Try again/);
+  hang = false;
+  retry.props.onclick();
+  await sleep(50);
+  assert.match(s.rendered(), /Back again/);
+});
+
+test("windows share data: what one window fetched, another shows without asking again", async () => {
+  const bus = makeBus();
+  const a = setup({ bus, routes: { [GMAIL_FEED]: atomWith("Shared mail") } });
+  const b = setup({ bus, routes: { [GMAIL_FEED]: atomWith("Shared mail") } });
+  await sleep(5);
+  a.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(a.calls.length, 1);
+  b.hover().enter(gmailTab);
+  await sleep(250);
+  assert.equal(b.calls.length, 0, "the other window didn't fetch");
+  assert.match(b.rendered(), /Shared mail/);
+});
+
+test("previews are kept between restarts, and forgotten when that's turned off", async () => {
+  const files = new Map();
+  const a = setup({ files, routes: { [GMAIL_FEED]: atomWith("Remembered") } });
+  await sleep(5);
+  a.hover().enter(gmailTab);
+  await sleep(250);
+  await a.peek().flush();
+  const saved = files.get("/profile/zen-peek-cache.json");
+  assert.ok(saved, "written to the profile");
+  assert.match(saved, /\$date/, "dates kept");
+  assert.doesNotMatch(saved, /chrome:\/\/zen-peek|password|token/i, "no secrets");
+  a.peek().dispose();
+
+  // "Restart": a new window reads the file and shows the data without fetching.
+  const b = setup({ files, observable: true, fetchImpl: () => new Promise(() => {}) });
+  await sleep(20);
+  b.hover().enter(gmailTab);
+  await sleep(250);
+  assert.match(b.rendered(), /Remembered/);
+
+  b.setPref("persist", false);
+  await sleep(200);
+  assert.equal(files.size, 0, "file removed");
+});
+
+test("page snapshots are reused for a few seconds, and retaken after the tab changes", async () => {
+  const notion = { label: "Notion", url: "https://www.notion.so/x", loaded: true };
+  const s = setup();
+  await sleep(5);
+  for (let i = 0; i < 2; i++) {
+    s.hover().enter(notion);
+    await sleep(220);
+    s.hover().leave(notion);
+    await sleep(450);
+  }
+  assert.equal(s.snapshots.length, 1);
+  s.tabsChanged(notion);
+  s.hover().enter(notion);
+  await sleep(220);
+  assert.equal(s.snapshots.length, 2);
+});
+
+test("calendar: a Join button for a meeting that's about to start opens it in a new tab", async () => {
+  const now = new Date();
+  const p = (d) => String(d).padStart(2, "0");
+  const utc = (d) => `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}00Z`;
+  const soon = new Date(now.getTime() + 5 * 60000);
+  const later = new Date(now.getTime() + 25 * 60000);
+  const ics = ["BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:1", "SUMMARY:Standup", `DTSTART:${utc(soon)}`, `DTEND:${utc(later)}`,
+    "LOCATION:https://meet.google.com/abc-defg-hij", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+  const s = setup({ routes: { "https://cal/s.ics": ics }, secrets: { calendar: "https://cal/s.ics" } });
+  await sleep(5);
+  s.hover().enter({ label: "Calendar", url: "https://calendar.google.com/calendar/r" });
+  await sleep(250);
+  if (soon.getDate() !== now.getDate()) return; // just before midnight: the event is tomorrow
+  const [join] = s.find((n) => /zp-action/.test(n.props.class || ""));
+  assert.ok(join, "Join button shown");
+  assert.equal(join.props["aria-label"], "Join on Google Meet");
+  assert.doesNotMatch(s.rendered(), /Standup \| .*meet\.google\.com/, "the link isn't repeated as the location");
+  let stopped = false;
+  join.props.onclick({ button: 0, stopPropagation: () => (stopped = true) });
+  assert.ok(stopped);
+  assert.deepEqual(s.opened[0], { url: "https://meet.google.com/abc-defg-hij", tab: "Calendar", newTab: true });
+});
+
+test("github: CI state and review status of my pull requests", async () => {
+  const s = setup({ routes: githubRoutes, secrets: { github: "t" } });
+  await sleep(5);
+  s.hover().enter({ label: "GitHub", url: "https://github.com/" });
+  await sleep(250);
+  assert.match(s.rendered(), /Your pull requests.*My fix.*approved · ✗/);
+  const mine = s.rows().find((r) => /My fix/.test(textOf(r)));
+  assert.equal(mine.props["aria-label"], "My fix, a/b #3, approved, Checks failing");
+  assert.equal(s.calls.length, 2, "notifications + one GraphQL request");
+});
+
+test("language: Turkish when Zen is in Turkish, or when chosen", async () => {
+  const s = setup({ locale: "tr-TR", routes: { [GMAIL_FEED]: atomCount(2) } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  assert.match(s.rendered(), /2 okunmamış/);
+  const en = setup({ locale: "tr-TR", prefs: { language: "en" }, routes: { [GMAIL_FEED]: atomCount(2) } });
+  await sleep(5);
+  en.hover().enter(gmailTab);
+  await sleep(250);
+  assert.match(en.rendered(), /2 unread/);
+});
+
+test("smart closing: stays open while the mouse moves toward the preview, closes when it goes elsewhere", async () => {
+  const panelRect = { left: 220, right: 540, top: 40, bottom: 300 };
+  const s = setup({ panelRect, routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  s.move(100, 60);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  s.hover().leave(gmailTab);
+  s.move(150, 80); // diagonally toward the card
+  await sleep(450);
+  assert.equal(s.isOpen(), true, "kept open on the way");
+  s.move(60, 400); // away
+  await sleep(250);
+  assert.equal(s.isOpen(), false);
+
+  // Default "pause" behaviour without the check.
+  const p = setup({ panelRect, prefs: { close: "pause" }, routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  p.move(100, 60);
+  p.hover().enter(gmailTab);
+  await sleep(250);
+  p.hover().leave(gmailTab);
+  p.move(150, 80);
+  await sleep(450);
+  assert.equal(p.isOpen(), false);
+});
+
+test("smart closing: crossing another Essential on the way to the preview doesn't switch to it", async () => {
+  const panelRect = { left: 220, right: 540, top: 40, bottom: 300 };
+  const s = setup({ panelRect, routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  s.move(100, 60);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  s.hover().leave(gmailTab);
+  s.move(130, 70);
+  const hn = { label: "HN", url: "https://news.ycombinator.com/" };
+  s.hover().enter(hn); // passing over it…
+  for (let x = 140; x < 220; x += 16) {
+    s.move(x, 60 + (x - 100) / 3); // …still moving toward the preview
+    await sleep(25);
+  }
+  s.panelOpts().onEnter(); // reached the preview
+  await sleep(300);
+  assert.match(s.rendered(), /Gmail/, "still the Gmail preview");
+  assert.equal(s.calls.filter((c) => c.url.includes("hacker-news")).length, 0, "nothing fetched for the crossed Essential");
+
+  // Resting on an Essential (no movement) switches to it right away.
+  s.hover().leave(gmailTab);
+  s.move(110, 64);
+  s.hover().enter(hn);
+  await sleep(200);
+  assert.match(s.rendered(), /^HN/, "switched to the Essential it rests on");
+});
+
+test("keyboard: the shortcut previews the first Essential; Esc closes", async () => {
+  const gmail = essential("Gmail", "https://mail.google.com/mail/u/0/");
+  const s = setup({ tabs: [gmail], routes: { [GMAIL_FEED]: manyMails }, observable: true });
+  await sleep(5);
+  s.key({ code: "KeyP", key: "P", altKey: true, shiftKey: true });
+  await sleep(50);
+  assert.equal(s.isOpen(), true);
+  assert.match(s.rendered(), /Gmail/);
+  s.hover().leave(gmail); // the mouse moving doesn't close a keyboard preview
+  await sleep(500);
+  assert.equal(s.isOpen(), true);
+  s.key({ code: "KeyP", key: "P", altKey: true, shiftKey: true });
+  await sleep(10);
+  assert.equal(s.isOpen(), false, "the shortcut again closes it");
+  s.key({ code: "KeyP", key: "P", altKey: true, shiftKey: true });
+  await sleep(50);
+  s.key({ key: "Escape" });
+  assert.equal(s.isOpen(), false);
+  s.setPref("shortcut", "off");
+  await sleep(150);
+  s.key({ code: "KeyP", key: "P", altKey: true, shiftKey: true });
+  await sleep(50);
+  assert.equal(s.isOpen(), false, "shortcut can be turned off");
+});
+
+test("rows are keyboard-accessible links", async () => {
+  const s = setup({ routes: { [GMAIL_FEED]: manyMails } });
+  await sleep(5);
+  s.hover().enter(gmailTab);
+  await sleep(250);
+  const [row] = s.rows();
+  assert.equal(row.props.role, "link");
+  assert.equal(row.props.tabindex, "0");
+  let prevented = false;
+  row.props.onkeydown({ key: "Enter", preventDefault: () => (prevented = true) });
+  assert.ok(prevented);
+  assert.equal(s.opened.length, 1);
+  row.props.onauxclick({ button: 1 });
+  assert.equal(s.opened[1].newTab, true, "middle click opens a new tab");
 });

@@ -1,0 +1,16 @@
+{
+  // Type-checks the parts of the mod that don't touch Zen's internals.
+  // The files are classic scripts sharing one global scope, as in Zen.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitThis": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "files": ["mod/core.uc.js", "mod/strings.uc.js", "mod/sources.uc.js", "mod/cards.uc.js"]
+}

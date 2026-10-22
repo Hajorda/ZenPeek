@@ -6,12 +6,12 @@
 
 **Hover an Essential, see what's inside.**
 
-Arc-style previews for [Zen Browser](https://zen-browser.app): your latest mail, today's calendar, GitHub notifications, or a snapshot of the page. You don't have to switch tabs.
+Arc-style previews and unread badges for [Zen Browser](https://zen-browser.app): your latest mail, today's calendar, GitHub pull requests, or a snapshot of the page. You don't have to switch tabs.
 
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.2.0-F5B83D)
+![Version](https://img.shields.io/badge/version-0.3.0-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>
@@ -22,17 +22,21 @@ Arc-style previews for [Zen Browser](https://zen-browser.app): your latest mail,
 
 ## What you get
 
-Hover an Essential for half a second and a card pops out next to it:
+Hover an Essential for a moment (0.3 s) and a card pops out next to it:
 
 | Essential | Preview | Setup |
 | --- | --- | --- |
 | **Gmail** | Unread count, your 5 latest unread mails (sender, subject, time). Click one to open it. | None: uses the Google account you're signed in to in Zen. Works per account (`/mail/u/0`, `/u/1`, …). |
-| **Google Calendar** | Today's events: past ones dimmed, "now" and "in 25 min" highlighted, plus your next event if today is done. Handles recurring events, time zones and moved meetings. | Paste your calendar's private iCal address once (see below). |
-| **GitHub** | Pull requests waiting for your review, your open PRs with their status (approved, changes requested, waiting, draft), and unread notifications. Click to open. | A personal access token with the `notifications` scope (add `repo` to include private repositories). |
+| **Google Calendar** | Today's events: past ones dimmed, "now" and "in 25 min" highlighted, a **Join** button for Meet/Zoom/Teams meetings, plus your next event if today is done. Handles recurring events (including "2nd Tuesday", "last Friday"), time zones and moved meetings. | Paste your calendar's private iCal address once (see below). |
+| **GitHub** | Pull requests waiting for your review, your open PRs with their review status and CI (✓ ✗ ●), and unread notifications. Click to open. | A personal access token with the `notifications` scope (add `repo` to include private repositories). |
 | **Hacker News** | Top 5 stories. | None. |
 | **Any other site** | A snapshot of the page when the tab is open; otherwise its title and address. | None. |
 
-Moving from one Essential to the next switches the card instantly. Press **Esc** or move away to close it. Data is cached for 90 seconds, so hovering again is instant and doesn't hit the service each time.
+Moving from one Essential to the next switches the card instantly; moving toward the card keeps it open, even across other Essentials. Press **Esc** or move away to close it.
+
+**Unread badges.** Essentials show a red badge with their unread count, without hovering: Gmail unread mail, GitHub review requests and notifications, and any site that puts a count in its title, like `(3) WhatsApp`, Slack, Discord, Telegram or Messenger. Data refreshes in the background, only in the window you're using.
+
+**Keyboard.** **Alt+Shift+P** previews the focused Essential (or the first one). **↑/↓** move between items, **Enter** opens, **←/→** switch Essential, **Esc** closes.
 
 ## Install
 
@@ -63,61 +67,56 @@ You need [Zen Browser](https://zen-browser.app) and the [Sine](https://github.co
 
 ## Settings
 
-Open Sine → Zen Peek. Changes apply on your next hover; no restart needed.
+Open Sine → Zen Peek. Changes apply right away; no restart needed.
 
-**General**
-
-| Setting | Options | Default |
+| Section | Setting | Default |
 | --- | --- | --- |
-| Preview style | Floating card (glides between Essentials) · Classic (an arrow points at the Essential; switches instantly) | Floating card |
-| Show the preview after hovering for | 0.2 – 1.2 seconds | 0.5 s |
-| Card width | Narrow · Normal · Wide | Normal |
-| Items per card | 3 · 5 · 8 · 10 | 5 |
-| Refresh data at most every | 30 s · 1.5 min · 5 min · 15 min | 1.5 min |
-| Animation (floating card) | Normal · Fast · Off | Normal |
-| Clicking an item opens it | In that Essential's tab · In a new tab | In that Essential's tab |
-
-Ctrl/Cmd-click or middle-click always opens in a new tab. "Off" animation is also used automatically if your system asks for reduced motion.
-
-**Cards:** turn Gmail, Google Calendar, GitHub or Hacker News off to see the page snapshot instead.
-
-**Card options**
-
-| Card | Option | Default |
-| --- | --- | --- |
+| General | Preview style: floating card · classic (arrow) | Floating card |
+| | Show the preview after hovering for (0.2 – 1.2 s) | 0.3 s |
+| | When the mouse leaves: close quickly but stay open while moving toward the preview · close after 0.4 s | Smart |
+| | Card width · items per card · animation | Normal · 5 · Normal |
+| | Clicking an item opens it in that Essential's tab · a new tab | Same tab |
+| | Keyboard shortcut: Alt+Shift+P · Ctrl+Alt+P · off | Alt+Shift+P |
+| | Language: same as Zen · English · Türkçe | Same as Zen |
+| Badges | Show unread badges: with the number · as a dot · off | Number |
+| | Read unread counts from page titles (chat apps) | On |
+| Data | Refresh at most every 30 s · 1.5 · 5 · 15 min | 1.5 min |
+| | Keep Essentials' data up to date in the background | On |
+| | Remember previews between restarts | On |
+| | Give up on a service that doesn't answer after 5 · 10 · 20 · 30 s | 10 s |
+| Cards | Gmail · Google Calendar · GitHub · Hacker News (off = page snapshot) | On |
 | Gmail | Show the first lines of each mail | Off |
-| Calendar | Show today's events that are already over (dimmed) | On |
-| Calendar | Show the next event when today is done | On |
-| GitHub | Pull requests waiting for my review | On |
-| GitHub | My open pull requests and their review status | On |
-| GitHub | Unread notifications | On |
+| Calendar | Past events (dimmed) · next event when today is done | On · On |
+| | "Join" button: from 10 min before · always · off | From 10 min before |
+| GitHub | Review requests · my PRs · CI status · notifications | All on |
+| Other sites | Page snapshot when the tab is open · also preview pinned tabs | On · Off |
+| Troubleshooting | Log what Zen Peek does to the Browser Console | Off |
 
-**Other sites**
-
-| Setting | Default |
-| --- | --- |
-| Show a snapshot of the page when its tab is open | On |
-| Also preview pinned tabs (not only Essentials) | Off |
+Ctrl/Cmd-click or middle-click always opens in a new tab. Animations are off if your system asks for reduced motion.
 
 ## Privacy
 
 - **Everything runs inside your browser.** There's no server, account or tracking.
 - **Gmail** is read from Google's own unread-mail feed, using the login already in your browser. Mail never leaves Zen.
 - **Calendar address and GitHub token** are stored in Zen's password manager (Settings → Passwords, under `chrome://zen-peek`).
+- **Remembered previews** (optional, on by default) are stored in `zen-peek-cache.json` in your Zen profile: card data only, never tokens or addresses. Turning the setting off deletes the file.
 - **Safe display.** Everything shown in a card is displayed as plain text, never as a web page, so a mail subject can't run code.
 
 ## Development
 
 ```sh
-npm test   # parsers (Gmail, iCal incl. recurrence and time zones, GitHub, HN), data sources, and a hover/popup simulation
+npm install
+npm run check   # lint, type check, version check, and tests (parsers, data sources, cards, a hover/badge simulation)
 ```
 
 | Path | What's there |
 | --- | --- |
-| [`mod/core.uc.js`](mod/core.uc.js) | Which card a site gets, Gmail Atom and iCalendar parsing, recurring events, time zones, formatting |
-| [`mod/sources.uc.js`](mod/sources.uc.js) | Fetching each card's data, with clear errors |
+| [`mod/core.uc.js`](mod/core.uc.js) | Gmail Atom and iCalendar parsing, recurring events, time zones, meeting links, title badges, cache |
+| [`mod/strings.uc.js`](mod/strings.uc.js) | Every text, per language (English, Turkish) |
+| [`mod/sources.uc.js`](mod/sources.uc.js) | Fetching each card's data, with timeouts, rate limits and clear errors |
+| [`mod/cards.uc.js`](mod/cards.uc.js) | The card registry: which site, how to load, unread count, how to draw |
 | [`mod/zen-adapter.uc.js`](mod/zen-adapter.uc.js) | **Every** call into Zen internals: hover detection, popup, snapshots, opening links |
-| [`mod/peek.uc.js`](mod/peek.uc.js) | Hover timing, cards, caching, setup prompts |
+| [`mod/peek.uc.js`](mod/peek.uc.js) | Hover timing, badges, background refresh, caching, keyboard, setup prompts |
 | [`mod/userChrome.css`](mod/userChrome.css) | The popup's look (follows Zen's light/dark theme) |
 
 **Debugging:** in the Browser Toolbox console, `ZenPeek.cache.map.clear()` forces a refresh. Log lines start with `[Zen Peek]`.
@@ -131,10 +130,10 @@ npm test   # parsers (Gmail, iCal incl. recurrence and time zones, GitHub, HN), 
 ## Roadmap
 
 - [ ] Live mini view of sites whose tab isn't open
-- [ ] More cards: Outlook, Google Drive recent files, Notion, Slack unread, any RSS feed
+- [ ] More cards: Outlook, Google Drive recent files, Notion, any RSS feed
 - [ ] Microsoft 365 and iCloud calendars (any iCal address already works)
 - [ ] Sine marketplace listing
 
 ## Contributing
 
-Issues and pull requests are welcome. Run `npm test` first. New cards go in `core.uc.js` (matching and parsing) and `sources.uc.js` (fetching), with a renderer in `peek.uc.js`.
+Issues and pull requests are welcome. Run `npm test` first. New cards: parsing in `core.uc.js`, fetching in `sources.uc.js`, then one `register({...})` in `cards.uc.js` and a `card-<type>` checkbox in `preferences.json`. Translations: copy the `en` table in `strings.uc.js`.

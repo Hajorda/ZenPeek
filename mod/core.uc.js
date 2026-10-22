@@ -1,27 +1,35 @@
-// Zen Peek — pure logic: which card a site gets, feed/calendar parsing,
-// recurring events, time zones, formatting. No browser APIs here.
+// @ts-check
+// Zen Peek — pure logic: feed/calendar parsing, recurring events, time zones,
+// unread counts in tab titles, meeting links, caching, formatting.
+// No browser internals here (DOMParser is used when the engine has it).
+/* exported ZPCore */
 // eslint-disable-next-line no-var
 var ZPCore = (() => {
   "use strict";
 
-  // --- Which card for which site -------------------------------------------------
+  /**
+   * @typedef {{ subject: string, snippet: string, from: string, date: Date, url: string }} Mail
+   * @typedef {{ unread: number, mails: Mail[] }} GmailData
+   * @typedef {{ url: string, provider: string }} Meeting
+   * @typedef {{ summary: string, start: Date, end: Date, allDay: boolean, location: string, url: string, meeting: Meeting | null }} CalendarEvent
+   * @typedef {{ title: string, repo: string, number?: number, url: string, draft?: boolean, date: Date, status?: string, ci?: string }} GithubItem
+   * @typedef {{ count: number | null, dot: boolean, more?: boolean }} TitleBadge
+   * @typedef {object} RawEvent  An iCalendar VEVENT while it's being read.
+   * @property {any[]} exdates
+   * @property {string} [summary] @property {string} [location] @property {string} [uid] @property {string} [status]
+   * @property {string} [url] @property {string} [description] @property {string} [conference]
+   * @property {Record<string, string>} [rrule] @property {string} [duration]
+   * @property {any} [_start] @property {any} [_end] @property {any} [_rid]
+   * @property {Date} [start] @property {Date} [end] @property {boolean} [allDay] @property {Date} [recurrenceId] @property {Date} [until]
+   */
 
-  function cardFor(url) {
-    let u;
+  /** Hostname without "www.", or "" for something that isn't a URL. */
+  function hostOf(url) {
     try {
-      u = new URL(url);
+      return new URL(url).hostname.replace(/^www\./, "");
     } catch {
-      return null;
+      return "";
     }
-    const host = u.hostname.replace(/^www\./, "");
-    if (host === "mail.google.com") {
-      const m = u.pathname.match(/\/mail\/u\/(\d+)/);
-      return { type: "gmail", account: m ? Number(m[1]) : 0 };
-    }
-    if (host === "calendar.google.com") return { type: "calendar" };
-    if (host === "github.com") return { type: "github" };
-    if (host === "news.ycombinator.com") return { type: "hn" };
-    return null;
   }
 
   // --- XML / entities --------------------------------------------------------------
@@ -45,7 +53,38 @@ var ZPCore = (() => {
   };
 
   // Gmail's Atom feed of unread mail (mail.google.com/mail/u/N/feed/atom).
+  // Uses a real XML parser when the engine has one (always, inside Zen);
+  // the regular-expression reader is the fallback for tests and odd engines.
+  /** @returns {GmailData} */
   function parseGmailAtom(xml) {
+    return typeof DOMParser === "function" ? parseGmailAtomDom(xml, DOMParser) : parseGmailAtomText(xml);
+  }
+
+  /** @returns {GmailData} */
+  function parseGmailAtomDom(xml, Parser) {
+    const doc = new Parser().parseFromString(String(xml), "application/xml");
+    const root = doc.documentElement;
+    if (!root || root.localName !== "feed" || doc.getElementsByTagName("parsererror").length) {
+      throw new Error("not a Gmail feed (signed out?)");
+    }
+    const child = (el, name) => (el ? [...el.children].find((c) => c.localName === name) || null : null);
+    const text = (el, name) => (child(el, name)?.textContent || "").trim();
+    const mails = [...root.children].filter((c) => c.localName === "entry").map((e) => {
+      const author = child(e, "author");
+      return {
+        subject: text(e, "title"),
+        snippet: text(e, "summary"),
+        from: text(author, "name") || text(author, "email"),
+        date: new Date(text(e, "issued") || text(e, "modified")),
+        url: child(e, "link")?.getAttribute("href") || "",
+      };
+    });
+    return { unread: Number(text(root, "fullcount")) || 0, mails };
+  }
+
+  /** @returns {GmailData} */
+  function parseGmailAtomText(xml) {
+    xml = String(xml);
     if (!/<feed[\s>]/i.test(xml)) throw new Error("not a Gmail feed (signed out?)");
     const fullcount = Number(tag(xml, "fullcount")) || 0;
     const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)].map((m) => {
@@ -53,7 +92,7 @@ var ZPCore = (() => {
       const author = (e.match(/<author>([\s\S]*?)<\/author>/i) || [])[1] || "";
       const link = (e.match(/<link[^>]*href="([^"]+)"/i) || [])[1] || "";
       return {
-        subject: tag(e, "title") || "(no subject)",
+        subject: tag(e, "title"),
         snippet: tag(e, "summary"),
         from: tag(author, "name") || tag(author, "email"),
         date: new Date(tag(e, "issued") || tag(e, "modified")),
@@ -111,7 +150,9 @@ var ZPCore = (() => {
     const lines = String(text).replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "").split(/\r?\n/);
     if (!lines.some((l) => l.startsWith("BEGIN:VCALENDAR"))) throw new Error("not an iCalendar file");
     let calTz = "";
+    /** @type {RawEvent[]} */
     const events = [];
+    /** @type {RawEvent | null} */
     let ev = null;
     for (const line of lines) {
       if (line === "BEGIN:VEVENT") {
@@ -139,6 +180,8 @@ var ZPCore = (() => {
         case "UID": ev.uid = value; break;
         case "STATUS": ev.status = value; break;
         case "URL": ev.url = value; break;
+        case "DESCRIPTION": ev.description = text(); break;
+        case "CONFERENCE": case "X-GOOGLE-CONFERENCE": ev.conference = value; break;
         case "RRULE": ev.rrule = Object.fromEntries(value.split(";").map((p) => p.split("="))); break;
         case "DTSTART": Object.assign(ev, { _start: [value, params] }); break;
         case "DTEND": ev._end = [value, params]; break;
@@ -162,7 +205,7 @@ var ZPCore = (() => {
       delete e._end;
       delete e._rid;
     }
-    return events.filter((e) => e.start instanceof Date && !isNaN(e.start));
+    return events.filter((e) => e.start instanceof Date && !isNaN(e.start.getTime()));
   }
 
   function durationMs(d) {
@@ -173,10 +216,52 @@ var ZPCore = (() => {
   }
 
   const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  const nums = (v) => String(v || "").split(",").map(Number).filter((n) => Number.isInteger(n) && n !== 0);
+  // "MO" → every Monday; "2TU" → 2nd Tuesday; "-1FR" → last Friday.
+  const parseByday = (v) => String(v || "").split(",").map((x) => {
+    const m = x.trim().match(/^([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$/);
+    return m ? { ord: m[1] ? Number(m[1]) : 0, wd: DAYS.indexOf(m[2]) } : null;
+  }).filter((x) => x !== null);
+
+  // Days (1–31) of month `m` in year `y` that a MONTHLY/YEARLY rule picks, in order.
+  // Handles BYDAY (with ordinals), BYMONTHDAY (negative = from the end) and BYSETPOS.
+  function ruleDaysInMonth(y, m, r, startDay) {
+    const last = new Date(y, m + 1, 0).getDate();
+    const fromEnd = (n) => (n > 0 ? n : last + 1 + n);
+    const byday = parseByday(r.BYDAY);
+    let days;
+    if (byday.length) {
+      const picked = new Set();
+      for (const { ord, wd } of byday) {
+        const all = [];
+        for (let d = 1; d <= last; d++) if (new Date(y, m, d).getDay() === wd) all.push(d);
+        if (!ord) all.forEach((d) => picked.add(d));
+        else {
+          const d = ord > 0 ? all[ord - 1] : all[all.length + ord];
+          if (d) picked.add(d);
+        }
+      }
+      days = [...picked];
+      if (r.BYMONTHDAY) {
+        const md = new Set(nums(r.BYMONTHDAY).map(fromEnd));
+        days = days.filter((d) => md.has(d));
+      }
+    } else if (r.BYMONTHDAY) {
+      days = nums(r.BYMONTHDAY).map(fromEnd);
+    } else {
+      days = [startDay];
+    }
+    days = [...new Set(days)].filter((d) => d >= 1 && d <= last).sort((a, b) => a - b);
+    if (r.BYSETPOS) {
+      days = [...new Set(nums(r.BYSETPOS).map((p) => (p > 0 ? days[p - 1] : days[days.length + p])).filter(Boolean))].sort((a, b) => a - b);
+    }
+    return days;
+  }
 
   // Start times of an event's occurrences that begin before `until` (Date).
-  // Supports DAILY / WEEKLY (BYDAY) / MONTHLY (BYMONTHDAY) / YEARLY with
-  // INTERVAL, COUNT and UNTIL, which covers what calendars export in practice.
+  // Supports DAILY (BYDAY filter) / WEEKLY (BYDAY) / MONTHLY and YEARLY
+  // (BYDAY with ordinals like "2nd Tuesday", BYMONTHDAY, BYMONTH, BYSETPOS),
+  // with INTERVAL, COUNT, UNTIL and EXDATE — what calendars export in practice.
   function occurrences(ev, until) {
     const out = [];
     const r = ev.rrule;
@@ -195,25 +280,46 @@ var ZPCore = (() => {
       return true;
     };
     const at = (y, mo, d) => new Date(y, mo, d, h, mi, se);
+    const weekdays = parseByday(r.BYDAY).map((x) => x.wd);
+    const months = nums(r.BYMONTH).filter((x) => x >= 1 && x <= 12).map((x) => x - 1).sort((a, b) => a - b);
     for (let i = 0; i < 20000; i++) {
       if (r.FREQ === "DAILY") {
-        if (!push(at(s.getFullYear(), s.getMonth(), s.getDate() + i * interval))) break;
+        const d = at(s.getFullYear(), s.getMonth(), s.getDate() + i * interval);
+        if (d >= stop) break;
+        if (weekdays.length && !weekdays.includes(d.getDay())) continue; // e.g. weekdays only
+        if (!push(d)) break;
       } else if (r.FREQ === "WEEKLY") {
-        const byday = r.BYDAY ? r.BYDAY.split(",").map((x) => DAYS.indexOf(x.slice(-2))) : [s.getDay()];
+        const byday = weekdays.length ? weekdays : [s.getDay()];
         const weekStart = at(s.getFullYear(), s.getMonth(), s.getDate() - s.getDay() + i * 7 * interval);
+        if (weekStart >= stop) break;
         let go = true;
-        for (const wd of [...byday].sort((a, b) => a - b)) {
+        for (const wd of [...new Set(byday)].sort((a, b) => a - b)) {
           go = push(at(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + wd));
           if (!go) break;
         }
         if (!go) break;
       } else if (r.FREQ === "MONTHLY") {
-        const day = Number(r.BYMONTHDAY) || s.getDate();
-        const d = at(s.getFullYear(), s.getMonth() + i * interval, day);
-        if (d.getDate() !== day) continue; // e.g. the 31st in a 30-day month
-        if (!push(d)) break;
+        const first = new Date(s.getFullYear(), s.getMonth() + i * interval, 1);
+        if (first >= stop) break;
+        if (months.length && !months.includes(first.getMonth())) continue;
+        let go = true;
+        for (const d of ruleDaysInMonth(first.getFullYear(), first.getMonth(), r, s.getDate())) {
+          go = push(at(first.getFullYear(), first.getMonth(), d));
+          if (!go) break;
+        }
+        if (!go) break;
       } else if (r.FREQ === "YEARLY") {
-        if (!push(at(s.getFullYear() + i * interval, s.getMonth(), s.getDate()))) break;
+        const y = s.getFullYear() + i * interval;
+        if (new Date(y, 0, 1) >= stop) break;
+        let go = true;
+        for (const mo of months.length ? months : [s.getMonth()]) {
+          for (const d of ruleDaysInMonth(y, mo, r, s.getDate())) {
+            go = push(at(y, mo, d));
+            if (!go) break;
+          }
+          if (!go) break;
+        }
+        if (!go) break;
       } else {
         push(s);
         break;
@@ -223,8 +329,30 @@ var ZPCore = (() => {
     return out;
   }
 
+  // Video-call links found in an event (Google Meet, Zoom, Teams, Webex, Jitsi, Whereby).
+  const MEETING = [
+    [/https:\/\/meet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3}\b/i, "Google Meet"],
+    [/https:\/\/(?:[\w-]+\.)?zoom\.us\/(?:j|my|w|s)\/[^\s"'<>]+/i, "Zoom"],
+    [/https:\/\/teams\.(?:microsoft|live)\.com\/(?:l\/meetup-join|meet)\/[^\s"'<>]+/i, "Teams"],
+    [/https:\/\/[\w-]+\.webex\.com\/[^\s"'<>]+/i, "Webex"],
+    [/https:\/\/meet\.jit\.si\/[^\s"'<>]+/i, "Jitsi"],
+    [/https:\/\/whereby\.com\/[^\s"'<>]+/i, "Whereby"],
+  ];
+  /** @returns {Meeting | null} */
+  function meetingLink(ev) {
+    for (const text of [ev.conference, ev.location, ev.url, ev.description]) {
+      if (!text) continue;
+      for (const [re, provider] of MEETING) {
+        const m = String(text).match(re);
+        if (m) return { url: m[0].replace(/[).,;>\]]+$/, ""), provider: String(provider) };
+      }
+    }
+    return null;
+  }
+
   // Events overlapping the local day that contains `day`, sorted, with
   // single-instance changes (RECURRENCE-ID) replacing their series instance.
+  /** @returns {CalendarEvent[]} */
   function eventsOnDay(events, day = new Date()) {
     const from = new Date(day.getFullYear(), day.getMonth(), day.getDate());
     const to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
@@ -246,8 +374,11 @@ var ZPCore = (() => {
       if (o.status !== "CANCELLED" && o.start < to && o.end > from && !out.some((x) => x.uid === o.uid && x.start.getTime() === o.start.getTime())) out.push(o);
     }
     return out
-      .map((e) => ({ summary: e.summary || "(no title)", start: e.start, end: e.end, allDay: e.allDay, location: e.location || "", url: e.url || "" }))
-      .sort((a, b) => (b.allDay - a.allDay) || a.start - b.start);
+      .map((e) => ({
+        summary: e.summary || "", start: e.start, end: e.end, allDay: !!e.allDay,
+        location: e.location || "", url: e.url || "", meeting: meetingLink(e),
+      }))
+      .sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || a.start - b.start);
   }
 
   // --- GitHub / Hacker News --------------------------------------------------------------
@@ -278,6 +409,33 @@ var ZPCore = (() => {
     }));
   }
 
+  // GitHub GraphQL search results (pull requests) → display items, with the
+  // review decision and the CI state of the latest commit.
+  const CI = { SUCCESS: "passing", FAILURE: "failing", ERROR: "failing", PENDING: "running", EXPECTED: "running" };
+  /** @returns {{ reviews: GithubItem[], mine: GithubItem[] }} */
+  function parseGithubGraphql(json) {
+    if (!json || typeof json !== "object") throw new Error("unexpected GitHub response");
+    if (Array.isArray(json.errors) && json.errors.length && !json.data) throw new Error(json.errors[0]?.message || "GitHub GraphQL error");
+    const list = (conn) => (Array.isArray(conn?.nodes) ? conn.nodes : []).filter((n) => n && n.url);
+    const item = (p) => ({
+      title: p.title || "",
+      repo: p.repository?.nameWithOwner || "",
+      number: p.number,
+      url: p.url,
+      draft: !!p.isDraft,
+      date: new Date(p.updatedAt),
+    });
+    const status = (p) => (p.isDraft ? "draft" : p.reviewDecision === "CHANGES_REQUESTED" ? "changes requested" : p.reviewDecision === "APPROVED" ? "approved" : "waiting for review");
+    return {
+      reviews: list(json.data?.reviews).map(item),
+      mine: list(json.data?.mine).map((p) => ({
+        ...item(p),
+        status: status(p),
+        ci: CI[p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state] || "",
+      })),
+    };
+  }
+
   function parseHnItem(item) {
     return {
       title: item?.title || "",
@@ -288,10 +446,33 @@ var ZPCore = (() => {
     };
   }
 
+  // --- Unread counts in tab titles -------------------------------------------------------
+  // "(3) WhatsApp", "[12] Discord", "(99+) Slack", "Inbox (3) - me@gmail.com - Gmail",
+  // and a dot for "• Discord" / "* Slack" (unread, no number). Years like "(2024)" are ignored.
+  /** @returns {TitleBadge | null} */
+  function parseTitleBadge(title) {
+    const t = String(title || "").trim();
+    const m = t.match(/^[([](\d{1,4})(\+?)[)\]]/) || t.match(/^[\p{L}\p{M} ]{1,30}\((\d{1,4})(\+?)\)(?=\s+[-–—|·•])/u);
+    if (m) {
+      const n = Number(m[1]);
+      if (!m[2] && n >= 1900 && n <= 2099) return null;
+      return n > 0 ? { count: n, dot: false, more: !!m[2] } : null;
+    }
+    if (/^[•●*]\s*\S/.test(t)) return { count: null, dot: true };
+    return null;
+  }
+
+  // Text for a badge: "3", "99+", "" (a dot), or null (no badge).
+  function badgeText(count, { dot = false, style = "count" } = {}) {
+    if (style === "off") return null;
+    if (count > 0) return style === "dot" ? "" : count > 99 ? "99+" : String(count);
+    return dot ? "" : null;
+  }
+
   // --- Formatting -----------------------------------------------------------------------
 
   function relTime(date, now = new Date(), locale = undefined) {
-    const s = Math.round((date - now) / 1000);
+    const s = Math.round((+date - +now) / 1000);
     const abs = Math.abs(s);
     const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
     if (abs < 60) return rtf.format(0, "minute");
@@ -300,28 +481,63 @@ var ZPCore = (() => {
     return rtf.format(Math.round(s / 86400), "day");
   }
 
-  const clock = (date, locale) => new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date);
+  const clock = (date, locale = undefined) => new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date);
 
-  // "Now", "in 25 min", or nothing, for calendar rows.
+  // Where a calendar event is relative to now: { kind: "now" }, { kind: "soon", minutes } (within the hour), or null.
   function eventStatus(e, now = new Date()) {
-    if (e.allDay) return "";
-    if (e.start <= now && e.end > now) return "now";
-    const mins = Math.round((e.start - now) / 60000);
-    if (mins > 0 && mins <= 60) return `in ${mins} min`;
-    return "";
+    if (e.allDay) return null;
+    if (e.start <= now && e.end > now) return { kind: "now", minutes: 0 };
+    const minutes = Math.round((+e.start - +now) / 60000);
+    if (minutes > 0 && minutes <= 60) return { kind: "soon", minutes };
+    return null;
+  }
+
+  // Should the "Join" button show? `mode`: "soon" (10 min before until the end), "always", "off".
+  function joinable(e, now = new Date(), mode = "soon") {
+    if (!e.meeting || mode === "off" || e.allDay) return false;
+    if (e.end <= now) return false;
+    return mode === "always" || +e.start - +now <= 10 * 60_000;
+  }
+
+  // --- Pointer intent ---------------------------------------------------------------------
+
+  const area = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+  // Is point p inside triangle abc (edges included)?
+  function inTriangle(p, a, b, c) {
+    const d1 = area(p, a, b), d2 = area(p, b, c), d3 = area(p, c, a);
+    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+  }
+  // Is the pointer (now at `p`, having left at `origin`) on its way to `rect` (the preview)?
+  // The "safe triangle" runs from just behind the origin to the preview's near edge.
+  function headingToward(origin, p, rect, slack = 12) {
+    if (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) return true;
+    const nearX = Math.abs(rect.left - origin.x) <= Math.abs(rect.right - origin.x) ? rect.left : rect.right;
+    const dir = Math.sign(nearX - origin.x) || 1;
+    const back = { x: origin.x - dir * slack, y: origin.y };
+    return inTriangle(p, back, { x: nearX, y: rect.top - slack }, { x: nearX, y: rect.bottom + slack });
   }
 
   // --- Cache ------------------------------------------------------------------------------
 
+  // A small LRU cache: entries expire after `ttl` (but peek() still returns them,
+  // marked not fresh), and only the `max` most recently used are kept.
   class Cache {
-    constructor(ttlMs, now = () => Date.now()) {
+    constructor(ttlMs, now = () => Date.now(), max = 50) {
       this.ttl = ttlMs;
       this.now = now;
+      this.max = max;
+      /** @type {Map<string, { value: any, at: number }>} */
       this.map = new Map();
+    }
+    _touch(key, e) {
+      this.map.delete(key);
+      this.map.set(key, e);
     }
     get(key) {
       const e = this.map.get(key);
-      return e && this.now() - e.at < this.ttl ? e.value : undefined;
+      if (!e || this.now() - e.at >= this.ttl) return undefined;
+      this._touch(key, e);
+      return e.value;
     }
     // Like get(), but also returns expired entries, marked as not fresh, so a
     // caller can show them instantly while it fetches new data.
@@ -329,15 +545,51 @@ var ZPCore = (() => {
       const e = this.map.get(key);
       if (!e) return undefined;
       const age = this.now() - e.at;
-      return { value: e.value, age, fresh: age < this.ttl };
+      return { value: e.value, age, at: e.at, fresh: age < this.ttl };
     }
     set(key, value) {
-      this.map.set(key, { value, at: this.now() });
+      this.setAt(key, value, this.now());
+    }
+    // Stores a value fetched at time `at` (e.g. by another window); older data never replaces newer.
+    setAt(key, value, at) {
+      const old = this.map.get(key);
+      if (old && old.at > at) return false;
+      this._touch(key, { value, at });
+      while (this.map.size > this.max) this.map.delete(this.map.keys().next().value);
+      return true;
+    }
+    // Drops entries older than `maxAgeMs`.
+    prune(maxAgeMs) {
+      const now = this.now();
+      for (const [k, e] of this.map) if (now - e.at > maxAgeMs) this.map.delete(k);
+    }
+    clear() {
+      this.map.clear();
     }
   }
 
+  // JSON can't hold Dates; these tag them as { $date: ms } and back.
+  const isDate = (v) => Object.prototype.toString.call(v) === "[object Date]";
+  function toStorable(v) {
+    if (isDate(v)) return { $date: v.getTime() };
+    if (Array.isArray(v)) return v.map(toStorable);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toStorable(x)]));
+    return v;
+  }
+  function fromStorable(v) {
+    if (Array.isArray(v)) return v.map(fromStorable);
+    if (v && typeof v === "object") {
+      const keys = Object.keys(v);
+      if (keys.length === 1 && keys[0] === "$date") return new Date(typeof v.$date === "number" ? v.$date : NaN);
+      return Object.fromEntries(keys.map((k) => [k, fromStorable(v[k])]));
+    }
+    return v;
+  }
+
   return {
-    cardFor, decode, parseGmailAtom, parseICS, occurrences, eventsOnDay, zoned, tzOffset,
-    parseGithubNotifications, parseGithubSearch, parseHnItem, relTime, clock, eventStatus, Cache,
+    hostOf, decode, parseGmailAtom, parseGmailAtomDom, parseGmailAtomText, parseICS, occurrences, eventsOnDay, meetingLink,
+    zoned, tzOffset, parseGithubNotifications, parseGithubSearch, parseGithubGraphql, parseHnItem,
+    parseTitleBadge, badgeText, relTime, clock, eventStatus, joinable, inTriangle, headingToward,
+    Cache, toStorable, fromStorable,
   };
 })();
