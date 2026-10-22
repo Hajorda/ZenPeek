@@ -6,7 +6,8 @@
   "readme": "https://raw.githubusercontent.com/hajorda/ZenPeek/main/README.md",
   "image": "https://raw.githubusercontent.com/hajorda/ZenPeek/main/assets/logo.png",
   "author": "hajorda",
-  "version": "0.3.0",
+  "ai": "yes",
+  "version": "0.3.1",
   "style": {
     "chrome": "mod/userChrome.css"
   },

@@ -8,6 +8,7 @@
 //   gZenVerticalTabsManager._prefsRightSide (which side the panel opens on), #navigator-toolbox (the sidebar),
 //   gZenWorkspaces.{promiseInitialized, privateWindowOrDisabled}, #tabContextMenu, TabContextMenu.contextTab,
 //   openTrustedLinkIn, Services.focus.activeWindow,
+//   #navigator-toolbox[has-popup-menu] (compact mode keeps the sidebar out while it's set),
 //   tab events: TabAttrModified, TabOpen, TabClose, TabPinned, TabUnpinned,
 //   TabAddedToEssentials, TabRemovedFromEssentials (Zen), and the tab's .tab-icon-stack (badge CSS)
 /* exported ZPZen */
@@ -21,6 +22,7 @@ var ZPZen = (() => {
   let followFrame = 0;
   let onAnchorLost = null;
   let lastPlacement = null;
+  let heldSidebar = null; // the sidebar we're keeping out (compact mode), if any
 
   return {
     get supported() {
@@ -285,8 +287,36 @@ var ZPZen = (() => {
       return lastPlacement;
     },
 
+    // Compact mode hides the sidebar as soon as the mouse leaves it, which would
+    // pull the Essential (and the preview's reason to exist) away while you move
+    // to the preview. Zen keeps the sidebar out while one of its menus is open
+    // ([has-popup-menu]); the preview does the same while it's open. Only an
+    // attribute we added is ever removed.
+    keepSidebarOpen(anchor) {
+      const sidebar = document.getElementById("navigator-toolbox");
+      const want = !!anchor && !!sidebar?.contains(anchor);
+      if (want && heldSidebar !== sidebar) {
+        this.releaseSidebar();
+        if (!sidebar.hasAttribute("has-popup-menu")) {
+          sidebar.setAttribute("has-popup-menu", "true");
+          heldSidebar = sidebar;
+        }
+      } else if (!want) {
+        this.releaseSidebar();
+      }
+    },
+    releaseSidebar() {
+      heldSidebar?.removeAttribute("has-popup-menu");
+      heldSidebar = null;
+    },
+
     // Returns false if it couldn't open (classic: the Essential isn't visible).
     openPanel(anchor) {
+      const opened = this._openPanel(anchor);
+      if (opened) this.keepSidebarOpen(anchor);
+      return opened;
+    },
+    _openPanel(anchor) {
       if (panelStyle === "popup") {
         if (!this.anchorUsable(anchor)) {
           this.closePanel();
@@ -340,6 +370,7 @@ var ZPZen = (() => {
     closePanel() {
       if (followFrame) cancelAnimationFrame(followFrame);
       followFrame = 0;
+      this.releaseSidebar();
       panel?.classList.remove("zp-open");
     },
 
@@ -353,6 +384,7 @@ var ZPZen = (() => {
     removePanel() {
       if (followFrame) cancelAnimationFrame(followFrame);
       followFrame = 0;
+      this.releaseSidebar();
       resizeObserver?.disconnect();
       resizeObserver = null;
       panel?.remove();

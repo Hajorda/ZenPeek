@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+**Fixed**
+- Compact mode: the preview no longer closes when you move the mouse from an Essential to it. The sidebar used to slide away as soon as the mouse left it, taking the Essential with it (classic closed at once; the floating card closed on the next move). The sidebar now stays out while a preview is open, the same way Zen keeps it out for its own menus.
+- Added the `ai` field to `theme.json` for the Sine marketplace.
+
 ## 0.3.0
 
 **New**

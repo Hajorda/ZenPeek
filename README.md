@@ -11,7 +11,7 @@ Arc-style previews and unread badges for [Zen Browser](https://zen-browser.app):
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.3.0-F5B83D)
+![Version](https://img.shields.io/badge/version-0.3.1-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>

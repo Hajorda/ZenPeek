@@ -31,3 +31,36 @@ test("every Zen internal the adapter touches is listed at the top of the file", 
     assert.ok(header.includes(name), `${name} is documented in the header`);
   }
 });
+
+test("compact mode: the sidebar is kept out while a preview is open, and released after", () => {
+  const el = (inside) => {
+    const attrs = new Map();
+    return {
+      inside,
+      hasAttribute: (k) => attrs.has(k),
+      getAttribute: (k) => attrs.get(k) ?? null,
+      setAttribute: (k, v) => attrs.set(k, String(v)),
+      removeAttribute: (k) => attrs.delete(k),
+    };
+  };
+  const sidebar = el();
+  const essential = el(true);
+  const contentTab = el(false);
+  sidebar.contains = (x) => x === sidebar || !!x?.inside;
+  const document = { getElementById: (id) => (id === "navigator-toolbox" ? sidebar : null) };
+  const Z = loadGlobals(["zen-adapter.uc.js"], { document }).ZPZen;
+
+  Z.keepSidebarOpen(essential);
+  assert.equal(sidebar.getAttribute("has-popup-menu"), "true");
+  Z.releaseSidebar();
+  assert.equal(sidebar.hasAttribute("has-popup-menu"), false);
+
+  Z.keepSidebarOpen(contentTab);
+  assert.equal(sidebar.hasAttribute("has-popup-menu"), false, "only for Essentials in the sidebar");
+
+  // A real Zen menu already holds the sidebar: we never take its attribute away.
+  sidebar.setAttribute("has-popup-menu", "true");
+  Z.keepSidebarOpen(essential);
+  Z.releaseSidebar();
+  assert.equal(sidebar.getAttribute("has-popup-menu"), "true");
+});
