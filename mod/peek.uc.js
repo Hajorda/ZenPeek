@@ -71,7 +71,6 @@
     timeoutMs: Math.min(60, Math.max(3, num("timeout", 10))) * 1000,
     motion: oneOf("motion", ["normal", "fast", "off"], "normal"),
     newTab: str("open-links", "same") === "new",
-    language: oneOf("language", ["auto", ...Strings.languages], "auto"),
     shortcut: oneOf("shortcut", ["alt-shift-p", "ctrl-alt-p", "off"], "alt-shift-p"),
     // Which cards are on
     cards: Object.fromEntries(Cards.types().map((type) => [type, bool(`card-${type}`, true)])),
@@ -120,7 +119,7 @@
   function settings() {
     if (settingsObserved && settingsCache) return settingsCache;
     settingsCache = readSettings();
-    Strings.use(settingsCache.language === "auto" ? appLocale() : settingsCache.language);
+    Strings.use(appLocale()); // Zen's language; English when there's no translation
     return settingsCache;
   }
   {
@@ -161,9 +160,9 @@
     if (settings().debug) console.log("[Zen Peek] debug:", event, data);
   }
   function diagnostics() {
-    const { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language, theme } = settings();
+    const { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, theme } = settings();
     return JSON.parse(JSON.stringify({
-      settings: { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, language, theme },
+      settings: { debug, style, delay, close, width, items, refreshMs, timeoutMs, motion, badges, background, persist, theme },
       language: Strings.locale,
       panel: { style: Zen.panelStyle ?? null, open: Zen.panelOpen() },
       lastPlacement: Zen.lastPlacement ?? null,

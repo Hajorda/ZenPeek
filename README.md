@@ -11,7 +11,7 @@ Arc-style previews and unread badges for [Zen Browser](https://zen-browser.app):
 ![Zen](https://img.shields.io/badge/Zen-mod-065F46)
 ![Sine](https://img.shields.io/badge/installs%20with-Sine-10B981)
 ![Private](https://img.shields.io/badge/data-stays%20in%20your%20browser-F5B83D)
-![Version](https://img.shields.io/badge/version-0.4.1-F5B83D)
+![Version](https://img.shields.io/badge/version-0.4.2-F5B83D)
 
 <img src="assets/cards.png" width="640" alt="Two preview cards: Gmail with five recent mails, and Google Calendar with today's events">
 <br><sub>The Gmail and Calendar cards (a mock-up with sample data, drawn with the mod's own styles).</sub>
@@ -80,14 +80,13 @@ Open Sine → Zen Peek. Changes apply right away; no restart needed.
 
 | Section | Setting | Default |
 | --- | --- | --- |
-| General | Preview style: floating card · classic (arrow) | Floating card |
+| General | Preview style: Floating card · Classic | Floating card |
 | | Show the preview after hovering for (0.2 – 1.2 s) | 0.3 s |
-| | When the mouse leaves: close quickly but stay open while moving toward the preview · close after 0.4 s | Smart |
+| | Closing: Smart (stays open while you move toward it) · After a pause (0.4 s) | Smart |
 | | Card width · items per card · animation | Normal · 5 · Normal |
 | | Clicking an item opens it in that Essential's tab · a new tab | Same tab |
 | | Keyboard shortcut: Alt+Shift+P · Ctrl+Alt+P · off | Alt+Shift+P |
-| | Language: same as Zen · English · Türkçe | Same as Zen |
-| | Colours: match Zen's theme (and theme mods) · Zen Peek's own | Match Zen |
+| | Colours: Match Zen · Zen Peek | Match Zen |
 | | "+" button on Gmail and Calendar | On |
 | | "Show more" button when a card has more items | On |
 | Badges | Show unread badges: as a dot (like Arc) · with the number · off | Dot |
@@ -111,7 +110,7 @@ Ctrl/Cmd-click or middle-click always opens in a new tab. Animations are off if 
 
 ## Themes
 
-Zen Peek follows Zen's theme: light or dark, your accent, and the panel colours that Zen and theme mods set (`--arrowpanel-background`, `--arrowpanel-color`, `--zen-border-radius`). Lines and muted text are mixed from those, so contrast follows the theme. If a theme makes the card hard to read, switch **Colours** to **Zen Peek's own**. Badges sit in the corner of the Essential's tile, so themes that resize Essentials keep them in place.
+Zen Peek follows Zen's theme: light or dark, your accent, and the panel colours that Zen and theme mods set (`--arrowpanel-background`, `--arrowpanel-color`, `--zen-border-radius`). Lines and muted text are mixed from those, so contrast follows the theme. If a theme makes the card hard to read, switch **Colours** to **Zen Peek**. Badges sit in the corner of the Essential's tile, so themes that resize Essentials keep them in place.
 
 ## Privacy
 
@@ -132,7 +131,8 @@ npm run check   # lint, type check, version check, and tests (parsers, data sour
 | Path | What's there |
 | --- | --- |
 | [`mod/core.uc.js`](mod/core.uc.js) | Gmail Atom and iCalendar parsing, recurring events, time zones, meeting links, title badges, cache |
-| [`mod/strings.uc.js`](mod/strings.uc.js) | Every text, per language (English, Turkish) |
+| [`mod/strings.uc.js`](mod/strings.uc.js) | Every text, per language (English, Turkish). Zen Peek uses Zen's language, or English when there's no translation |
+| [`mod/settings.css`](mod/settings.css) | The logo next to Zen Peek's name in Sine's settings |
 | [`mod/sources.uc.js`](mod/sources.uc.js) | Fetching each card's data, with timeouts, rate limits and clear errors |
 | [`mod/cards.uc.js`](mod/cards.uc.js) | The card registry: which site, how to load, unread count, how to draw |
 | [`mod/zen-adapter.uc.js`](mod/zen-adapter.uc.js) | **Every** call into Zen internals: hover detection, popup, snapshots, opening links |

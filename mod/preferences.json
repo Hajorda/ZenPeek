@@ -11,11 +11,11 @@
     "placeholder": false,
     "options": [
       {
-        "label": "Floating card (glides between Essentials)",
+        "label": "Floating card",
         "value": "card"
       },
       {
-        "label": "Classic (arrow points at the Essential, switches instantly)",
+        "label": "Classic",
         "value": "popup"
       }
     ]
@@ -52,16 +52,16 @@
   {
     "property": "zen.peek.close",
     "type": "dropdown",
-    "label": "When the mouse leaves the Essential",
+    "label": "Closing",
     "defaultValue": "smart",
     "placeholder": false,
     "options": [
       {
-        "label": "Close quickly, but stay open while moving toward the preview",
+        "label": "Smart",
         "value": "smart"
       },
       {
-        "label": "Close after a short pause (0.4 s)",
+        "label": "After a pause",
         "value": "pause"
       }
     ]
@@ -153,7 +153,7 @@
   {
     "property": "zen.peek.shortcut",
     "type": "dropdown",
-    "label": "Keyboard shortcut to preview the focused Essential",
+    "label": "Keyboard shortcut",
     "defaultValue": "alt-shift-p",
     "placeholder": false,
     "options": [
@@ -172,27 +172,6 @@
     ]
   },
   {
-    "property": "zen.peek.language",
-    "type": "dropdown",
-    "label": "Language",
-    "defaultValue": "auto",
-    "placeholder": false,
-    "options": [
-      {
-        "label": "Same as Zen",
-        "value": "auto"
-      },
-      {
-        "label": "English",
-        "value": "en"
-      },
-      {
-        "label": "Türkçe",
-        "value": "tr"
-      }
-    ]
-  },
-  {
     "property": "zen.peek.theme",
     "type": "dropdown",
     "label": "Colours",
@@ -200,11 +179,11 @@
     "placeholder": false,
     "options": [
       {
-        "label": "Match Zen's theme (and theme mods)",
+        "label": "Match Zen",
         "value": "zen"
       },
       {
-        "label": "Zen Peek's own",
+        "label": "Zen Peek",
         "value": "own"
       }
     ]

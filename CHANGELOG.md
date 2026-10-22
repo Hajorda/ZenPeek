@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+**Changed**
+- Zen Peek's logo shows next to its name in Sine's mod list and settings.
+- Shorter setting names: "Floating card / Classic", "Closing: Smart / After a pause", "Colours: Match Zen / Zen Peek".
+- Removed the Language setting: Zen Peek always uses Zen's language, or English when there's no translation.
+
 ## 0.4.1
 
 **Changed**

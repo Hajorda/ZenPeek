@@ -793,13 +793,13 @@ test("github: CI state and review status of my pull requests", async () => {
   assert.equal(s.calls.length, 2, "notifications + one GraphQL request");
 });
 
-test("language: Turkish when Zen is in Turkish, or when chosen", async () => {
+test("language: follows Zen (Turkish), English when there's no translation", async () => {
   const s = setup({ locale: "tr-TR", routes: { [GMAIL_FEED]: atomCount(2) } });
   await sleep(5);
   s.hover().enter(gmailTab);
   await sleep(250);
   assert.match(s.rendered(), /2 okunmamış/);
-  const en = setup({ locale: "tr-TR", prefs: { language: "en" }, routes: { [GMAIL_FEED]: atomCount(2) } });
+  const en = setup({ locale: "de-DE", routes: { [GMAIL_FEED]: atomCount(2) } });
   await sleep(5);
   en.hover().enter(gmailTab);
   await sleep(250);
